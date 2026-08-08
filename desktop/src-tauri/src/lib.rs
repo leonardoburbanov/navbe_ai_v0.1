@@ -498,6 +498,8 @@ pub fn run() {
             booting: Mutex::new(true),
         })
         .setup(|app| {
+            // Keep setup non-blocking: reqwest::blocking on the UI thread can
+            // stall/fail window creation on Windows.
             let handle = app.handle().clone();
             thread::spawn(move || {
                 let state = handle.state::<DaemonState>();
