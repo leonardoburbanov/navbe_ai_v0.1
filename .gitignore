@@ -26,6 +26,9 @@ serve.pid
 serve.log
 navbe_schedules/
 
+# Mobile
+mobile/node_modules/
+
 # Desktop / Tauri
 desktop/node_modules/
 desktop/dist/
