@@ -1,4 +1,3 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   addEdge,
   useEdgesState,
@@ -8,6 +7,7 @@ import {
   type Node,
   type OnSelectionChangeParams,
 } from "@xyflow/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type {
@@ -21,11 +21,10 @@ import FlowCanvas from "./FlowCanvas";
 import Inspector from "./Inspector";
 import { layoutWithDagre } from "./layout";
 import {
-  STEP_NODE_TYPE,
   flowToSpec,
+  STEP_NODE_TYPE,
   specToFlow,
   type FlowEdgeData,
-  type FlowMeta,
   type StepNodeData,
 } from "./mapSpec";
 import Palette from "./Palette";
@@ -33,48 +32,82 @@ import { loadPositions, positionsFromNodes, savePositions } from "./positions";
 
 interface FlowEditorProps {
   initial: FlowSpec;
-  isNew: boolean;
+  created: boolean;
   stepCatalog: Record<string, StepCatalogEntry>;
   connectorCatalog: Record<string, ConnectorCatalogEntry>;
+  /** When set, poll run and highlight node statuses (read-only canvas). */
+  runId?: string | null;
   onClose: () => void;
   onRan?: (flowId: string, runId: string) => void;
+  onSchedule?: (flowId: string) => void;
 }
 
-/** Full-height visual editor: palette + canvas + inspector + save/validate/run. */
+/** Visual flow editor with optional live run highlight. */
 export default function FlowEditor({
   initial,
-  isNew,
+  created: initiallyCreated,
   stepCatalog,
   connectorCatalog,
+  runId = null,
   onClose,
   onRan,
+  onSchedule,
 }: FlowEditorProps) {
   const qc = useQueryClient();
-  const boot = useMemo(() => {
-    const stored = loadPositions(initial.flow_id);
-    return specToFlow(initial, stored);
-  }, [initial]);
-
-  const [meta, setMeta] = useState<FlowMeta>(boot.meta);
-  const [nodes, setNodes, onNodesChange] = useNodesState(boot.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(boot.edges);
+  const readOnly = Boolean(runId);
+  const seeded = useMemo(() => {
+    const mapped = specToFlow(initial, loadPositions(initial.flow_id || "draft"));
+    return {
+      ...mapped,
+      nodes: enrichTitles(mapped.nodes, stepCatalog),
+    };
+  }, [initial, stepCatalog]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(seeded.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(seeded.edges);
+  const [meta, setMeta] = useState(seeded.meta);
+  const [created, setCreated] = useState(initiallyCreated);
+  const [dirty, setDirty] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState(!isNew);
-  const [dirty, setDirty] = useState(isNew);
+  const [message, setMessage] = useState<string | null>(null);
 
   const stepTypes = useMemo(() => Object.keys(stepCatalog).sort(), [stepCatalog]);
+  const titleMap = useMemo(
+    () => Object.fromEntries(stepTypes.map((t) => [t, stepCatalog[t]?.title ?? humanize(t)])),
+    [stepTypes, stepCatalog],
+  );
 
-  const selectedNode = useMemo(
-    () => nodes.find((n) => n.id === selectedNodeId) ?? null,
-    [nodes, selectedNodeId],
-  );
-  const selectedEdge = useMemo(
-    () => edges.find((e) => e.id === selectedEdgeId) ?? null,
-    [edges, selectedEdgeId],
-  );
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
+  const selectedEdge = edges.find((e) => e.id === selectedEdgeId) ?? null;
+
+  const runQuery = useQuery({
+    queryKey: ["run", runId],
+    queryFn: () => api.getRun(runId!),
+    enabled: Boolean(runId),
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s === "running" || s === "pending" ? 1000 : false;
+    },
+  });
+
+  useEffect(() => {
+    const byNode = executionByNodeId(runQuery.data?.steps);
+    setNodes((nds) =>
+      nds.map((n) => {
+        const ex = byNode[n.id];
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            title: n.data.title ?? titleMap[n.data.step_type] ?? humanize(n.data.step_type),
+            executionStatus: ex?.status ?? null,
+            executionError: ex?.error ?? null,
+          },
+        };
+      }),
+    );
+  }, [runQuery.data, setNodes, titleMap]);
 
   const persistLayout = useCallback(() => {
     savePositions(meta.flow_id || "draft", positionsFromNodes(nodes));
@@ -175,7 +208,12 @@ export default function FlowEditor({
         id,
         type: STEP_NODE_TYPE,
         position: position ?? { x: 80 + nodes.length * 24, y: 80 + nodes.length * 24 },
-        data: { step_type: stepType, config: {}, isEntry: false },
+        data: {
+          step_type: stepType,
+          config: {},
+          isEntry: false,
+          title: titleMap[stepType] ?? humanize(stepType),
+        },
       };
       setDirty(true);
       setNodes((nds) => {
@@ -189,7 +227,7 @@ export default function FlowEditor({
       setSelectedNodeId(id);
       setSelectedEdgeId(null);
     },
-    [nodes, meta.entry_node, setNodes, markEntryFlags],
+    [nodes, meta.entry_node, setNodes, markEntryFlags, titleMap],
   );
 
   const applyAutoLayout = useCallback(() => {
@@ -293,6 +331,7 @@ export default function FlowEditor({
 
   const title = meta.name || meta.flow_id || "Flow";
   const canRun = Boolean(meta.flow_id.trim()) && nodes.length > 0;
+  const runStatus = runQuery.data?.status;
 
   return (
     <div className="flow-editor card">
@@ -301,28 +340,48 @@ export default function FlowEditor({
           <div className="min-w-0">
             <h2 className="text-lg font-medium truncate">{title}</h2>
             <code className="text-xs muted">{meta.flow_id}</code>
-            {dirty && <span className="text-xs muted ml-2">unsaved</span>}
+            {dirty && !readOnly && <span className="text-xs muted ml-2">unsaved</span>}
+            {readOnly && runId && (
+              <span className="text-xs muted ml-2">
+                run <code>{runId.slice(0, 8)}</code>
+                {runStatus ? ` · ${runStatus}` : ""}
+              </span>
+            )}
           </div>
           {message && <span className="text-[var(--ok)] text-sm shrink-0">{message}</span>}
           {error && <span className="error text-sm truncate">{error}</span>}
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
-          <Button variant="ghost" onClick={applyAutoLayout}>
-            Auto-layout
-          </Button>
-          <Button variant="ghost" onClick={() => validate.mutate()} disabled={validate.isPending}>
-            Validate
-          </Button>
-          <Button variant="ghost" onClick={() => save.mutate()} disabled={save.isPending}>
-            Save
-          </Button>
-          <Button
-            onClick={() => runFlow.mutate()}
-            disabled={!canRun || runFlow.isPending}
-            title="Save if needed, then start a run"
-          >
-            {runFlow.isPending ? "Starting…" : "Run"}
-          </Button>
+          {!readOnly && (
+            <>
+              <Button variant="ghost" onClick={applyAutoLayout}>
+                Auto-layout
+              </Button>
+              <Button variant="ghost" onClick={() => validate.mutate()} disabled={validate.isPending}>
+                Validate
+              </Button>
+              <Button variant="ghost" onClick={() => save.mutate()} disabled={save.isPending}>
+                Save
+              </Button>
+              {created && meta.flow_id && onSchedule && (
+                <Button variant="ghost" onClick={() => onSchedule(meta.flow_id)}>
+                  Schedule
+                </Button>
+              )}
+              <Button
+                onClick={() => runFlow.mutate()}
+                disabled={!canRun || runFlow.isPending}
+                title="Save if needed, then start a run"
+              >
+                {runFlow.isPending ? "Starting…" : "Run"}
+              </Button>
+            </>
+          )}
+          {readOnly && created && meta.flow_id && onSchedule && (
+            <Button variant="ghost" onClick={() => onSchedule(meta.flow_id)}>
+              Schedule
+            </Button>
+          )}
           <Button variant="ghost" onClick={onClose}>
             Close
           </Button>
@@ -332,20 +391,21 @@ export default function FlowEditor({
       <div className="flow-editor__body">
         <Palette
           stepTypes={stepTypes}
-          titles={Object.fromEntries(
-            stepTypes.map((t) => [t, stepCatalog[t]?.title ?? t]),
-          )}
+          titles={titleMap}
           onAdd={(t) => addStep(t)}
+          hidden={readOnly}
         />
         <div className="flow-canvas-wrap">
           <FlowCanvas
             nodes={nodes}
             edges={edges as Edge<FlowEdgeData>[]}
             onNodesChange={(c) => {
+              if (readOnly) return;
               setDirty(true);
               onNodesChange(c);
             }}
             onEdgesChange={(c) => {
+              if (readOnly) return;
               setDirty(true);
               onEdgesChange(c);
             }}
@@ -353,13 +413,14 @@ export default function FlowEditor({
             onSelectionChange={onSelectionChange}
             onDropStep={(t, pos) => addStep(t, pos)}
             onNodeDragStop={persistLayout}
+            readOnly={readOnly}
           />
-          {nodes.length === 0 && (
+          {nodes.length === 0 && !readOnly && (
             <div className="flow-canvas-hint">
-              <p className="font-medium">Start with a step</p>
+              <p className="font-medium">Add a step → connect → Schedule or Run</p>
               <p className="muted text-sm">
                 Click a step on the left, or drag it onto the canvas. Connect steps by dragging from
-                the bottom handle to the next top handle. Attach connectors in the right panel.
+                the bottom handle to the next top handle.
               </p>
             </div>
           )}
@@ -371,7 +432,9 @@ export default function FlowEditor({
           selectedEdge={selectedEdge}
           stepCatalog={stepCatalog}
           connectorCatalog={connectorCatalog}
+          readOnly={readOnly}
           onMetaChange={(patch) => {
+            if (readOnly) return;
             setDirty(true);
             setMeta((m) => {
               const next = { ...m, ...patch };
@@ -399,4 +462,36 @@ function uniqueNodeId(nodes: Node<StepNodeData>[]): string {
   const used = new Set(nodes.map((n) => n.id));
   while (used.has(`n${i}`)) i += 1;
   return `n${i}`;
+}
+
+function enrichTitles(
+  nodes: Node<StepNodeData>[],
+  catalog: Record<string, StepCatalogEntry>,
+): Node<StepNodeData>[] {
+  return nodes.map((n) => ({
+    ...n,
+    data: {
+      ...n.data,
+      title: catalog[n.data.step_type]?.title ?? humanize(n.data.step_type),
+    },
+  }));
+}
+
+/** Map run step rows to node id → status. */
+function executionByNodeId(
+  steps: { node_id: string; status: string; error?: string | null }[] | undefined,
+): Record<string, { status: string; error?: string | null }> {
+  const out: Record<string, { status: string; error?: string | null }> = {};
+  for (const s of steps ?? []) {
+    out[s.node_id] = { status: s.status, error: s.error };
+  }
+  return out;
+}
+
+function humanize(stepType: string): string {
+  return stepType
+    .split("_")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }

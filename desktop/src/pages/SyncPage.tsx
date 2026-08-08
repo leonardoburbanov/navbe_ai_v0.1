@@ -1,10 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
+import type { GithubRepoItem } from "../api/types";
+import Alert from "../components/ui/Alert";
+import Button from "../components/ui/Button";
 import PageHeader from "../components/ui/PageHeader";
 
-/** GitHub device-flow login + workspace sync controls. */
+type Step = 1 | 2 | 3;
+
+/** Guided GitHub login → pick repo → push/pull. */
 export default function SyncPage() {
   const qc = useQueryClient();
   const auth = useQuery({ queryKey: ["github-auth"], queryFn: () => api.authGithubStatus() });
@@ -13,59 +18,116 @@ export default function SyncPage() {
     queryFn: () => api.syncStatus(),
     retry: false,
   });
+  const loggedIn = Boolean(
+    auth.data?.logged_in || status.data?.github_logged_in,
+  );
+  const [step, setStep] = useState<Step>(1);
   const [device, setDevice] = useState<{ user_code: string; verification_uri: string } | null>(
     null,
   );
-  const [owner, setOwner] = useState("");
-  const [repo, setRepo] = useState("");
-  const [branch, setBranch] = useState("");
-  const [message, setMessage] = useState("");
+  const [waitingLogin, setWaitingLogin] = useState(false);
+  const [repoQuery, setRepoQuery] = useState("");
+  const [selected, setSelected] = useState<GithubRepoItem | null>(null);
+  const [manualOwner, setManualOwner] = useState("");
+  const [manualName, setManualName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+
+  const repos = useQuery({
+    queryKey: ["github-repos"],
+    queryFn: () => api.authGithubRepos(),
+    enabled: loggedIn,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (loggedIn && step === 1) setStep(2);
+    if (status.data?.configured && loggedIn) setStep(3);
+  }, [loggedIn, status.data?.configured, step]);
+
+  const filteredRepos = useMemo(() => {
+    const list = repos.data?.repos ?? [];
+    const q = repoQuery.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (r) =>
+        r.full_name.toLowerCase().includes(q) ||
+        r.name.toLowerCase().includes(q) ||
+        r.owner.toLowerCase().includes(q),
+    );
+  }, [repos.data, repoQuery]);
 
   const begin = useMutation({
     mutationFn: () => api.authGithubBegin(),
     onSuccess: async (res) => {
       setDevice(res);
       setError(null);
+      setWaitingLogin(true);
       try {
         await openUrl(res.verification_uri);
       } catch {
         /* opener may be unavailable in browser-only preview */
       }
-    },
-    onError: (err: Error) => setError(err.message),
-  });
-
-  const complete = useMutation({
-    mutationFn: () => api.authGithubComplete(300),
-    onSuccess: () => {
-      setDevice(null);
-      setInfo("GitHub login complete");
-      void qc.invalidateQueries({ queryKey: ["github-auth"] });
+      try {
+        await api.authGithubComplete(300);
+        setDevice(null);
+        setWaitingLogin(false);
+        setInfo("Signed in with GitHub");
+        setStep(2);
+        void qc.invalidateQueries({ queryKey: ["github-auth"] });
+        void qc.invalidateQueries({ queryKey: ["sync-status"] });
+      } catch (err) {
+        setWaitingLogin(false);
+        setError(err instanceof Error ? err.message : String(err));
+      }
     },
     onError: (err: Error) => setError(err.message),
   });
 
   const logout = useMutation({
     mutationFn: () => api.authGithubLogout(),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["github-auth"] }),
+    onSuccess: () => {
+      setStep(1);
+      setSelected(null);
+      void qc.invalidateQueries({ queryKey: ["github-auth"] });
+      void qc.invalidateQueries({ queryKey: ["sync-status"] });
+      void qc.invalidateQueries({ queryKey: ["github-repos"] });
+    },
     onError: (err: Error) => setError(err.message),
   });
 
   const connect = useMutation({
-    mutationFn: () => api.syncConnect({ owner, name: repo, private: true }),
+    mutationFn: () => {
+      if (selected) {
+        return api.syncConnect({
+          owner: selected.owner,
+          name: selected.name,
+          private: selected.private,
+        });
+      }
+      if (!manualOwner.trim() || !manualName.trim()) {
+        throw new Error("Pick a repository or enter owner and name");
+      }
+      return api.syncConnect({
+        owner: manualOwner.trim(),
+        name: manualName.trim(),
+        private: true,
+      });
+    },
     onSuccess: () => {
-      setInfo("Repo connected");
+      setInfo("Repository connected");
+      setError(null);
+      setStep(3);
       void qc.invalidateQueries({ queryKey: ["sync-status"] });
     },
     onError: (err: Error) => setError(err.message),
   });
 
   const push = useMutation({
-    mutationFn: () => api.syncPush(message || undefined),
-    onSuccess: () => {
-      setInfo("Pushed");
+    mutationFn: () => api.syncPush(),
+    onSuccess: (res) => {
+      setInfo(res.message || "Pushed");
+      setError(null);
       void qc.invalidateQueries({ queryKey: ["sync-status"] });
     },
     onError: (err: Error) => setError(err.message),
@@ -73,117 +135,169 @@ export default function SyncPage() {
 
   const pull = useMutation({
     mutationFn: () => api.syncPull(),
-    onSuccess: () => {
-      setInfo("Pulled");
+    onSuccess: (res) => {
+      setInfo(res.message || "Pulled");
+      setError(null);
       void qc.invalidateQueries({ queryKey: ["sync-status"] });
     },
     onError: (err: Error) => setError(err.message),
   });
 
-  const checkout = useMutation({
-    mutationFn: () => api.syncCheckout(branch),
-    onSuccess: () => {
-      setInfo(`Checked out ${branch}`);
-      void qc.invalidateQueries({ queryKey: ["sync-status"] });
-    },
-    onError: (err: Error) => setError(err.message),
-  });
-
-  const createBranch = useMutation({
-    mutationFn: () => api.syncCreateBranch(branch),
-    onSuccess: () => {
-      setInfo(`Created ${branch}`);
-      void qc.invalidateQueries({ queryKey: ["sync-status"] });
-    },
-    onError: (err: Error) => setError(err.message),
-  });
+  const loginLabel =
+    auth.data?.login || status.data?.github_login || (loggedIn ? "signed in" : null);
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Sync"
-        subtitle="GitHub device login and push/pull of flow definitions for the workspace."
+        subtitle="Sign in with GitHub, pick a repo, then push or pull your flows."
       />
 
-      <div className="card space-y-3">
-        <h2 className="text-lg font-medium">GitHub auth</h2>
-        <p className="text-sm muted">
-          Status: {JSON.stringify(auth.data ?? { loading: auth.isLoading })}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <button className="btn" type="button" onClick={() => begin.mutate()}>
-            Begin device login
-          </button>
-          <button className="btn-ghost" type="button" onClick={() => complete.mutate()} disabled={!device}>
-            Complete login
-          </button>
-          <button className="btn-danger" type="button" onClick={() => logout.mutate()}>
-            Logout
-          </button>
+      <ol className="sync-steps">
+        <li className={step === 1 ? "sync-steps__item--active" : ""}>1. Sign in</li>
+        <li className={step === 2 ? "sync-steps__item--active" : ""}>2. Choose repo</li>
+        <li className={step === 3 ? "sync-steps__item--active" : ""}>3. Sync</li>
+      </ol>
+
+      {error && <Alert tone="error">{error}</Alert>}
+      {info && <Alert tone="info">{info}</Alert>}
+
+      {step === 1 && (
+        <div className="card space-y-3">
+          <h2 className="text-lg font-medium">Sign in with GitHub</h2>
+          <p className="muted text-sm">
+            Opens GitHub in your browser. Keep this window open while you authorize.
+          </p>
+          <Button onClick={() => begin.mutate()} disabled={begin.isPending || waitingLogin}>
+            {waitingLogin ? "Waiting for browser…" : begin.isPending ? "Starting…" : "Sign in with GitHub"}
+          </Button>
+          {device && (
+            <div className="rounded-lg border border-[var(--line)] p-3 text-sm space-y-1">
+              <p className="muted">If the browser does not open, go to the link and enter this code:</p>
+              <div>
+                Code: <code className="text-lg tracking-widest">{device.user_code}</code>
+              </div>
+              <div>
+                Open: <code>{device.verification_uri}</code>
+              </div>
+            </div>
+          )}
         </div>
-        {device && (
-          <div className="rounded-lg border border-slate-700 p-3 text-sm space-y-1">
-            <div>
-              Code: <code className="text-lg tracking-widest">{device.user_code}</code>
-            </div>
-            <div>
-              Open: <code>{device.verification_uri}</code>
-            </div>
-            <p className="muted">Enter the code in the browser, then click Complete login.</p>
+      )}
+
+      {step >= 2 && (
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h2 className="text-lg font-medium">Choose repository</h2>
+            {loggedIn && (
+              <Button variant="ghost" size="sm" onClick={() => logout.mutate()}>
+                Sign out{loginLabel ? ` (${loginLabel})` : ""}
+              </Button>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className="card space-y-3">
-        <h2 className="text-lg font-medium">Repository</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="field">
-            <span>Owner</span>
-            <input value={owner} onChange={(e) => setOwner(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>Repo name</span>
-            <input value={repo} onChange={(e) => setRepo(e.target.value)} />
-          </label>
-        </div>
-        <button className="btn" type="button" onClick={() => connect.mutate()} disabled={!owner || !repo}>
-          Connect repo
-        </button>
-      </div>
+          {repos.isLoading && <p className="muted text-sm">Loading repositories…</p>}
+          {repos.isError && (
+            <Alert tone="warn">
+              Could not list repositories. Enter owner and name below, or install the GitHub App on
+              the repos you need.
+            </Alert>
+          )}
 
-      <div className="card space-y-3">
-        <h2 className="text-lg font-medium">Workspace</h2>
-        <pre className="text-xs overflow-auto rounded bg-slate-950 p-3">
-          {JSON.stringify(status.data ?? status.error ?? {}, null, 2)}
-        </pre>
-        <div className="flex flex-wrap gap-2 items-end">
-          <label className="field mb-0">
-            <span>Commit message</span>
-            <input value={message} onChange={(e) => setMessage(e.target.value)} />
-          </label>
-          <button className="btn" type="button" onClick={() => push.mutate()}>
-            Push
-          </button>
-          <button className="btn-ghost" type="button" onClick={() => pull.mutate()}>
-            Pull
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-2 items-end">
-          <label className="field mb-0">
-            <span>Branch</span>
-            <input value={branch} onChange={(e) => setBranch(e.target.value)} />
-          </label>
-          <button className="btn-ghost" type="button" onClick={() => checkout.mutate()} disabled={!branch}>
-            Checkout
-          </button>
-          <button className="btn-ghost" type="button" onClick={() => createBranch.mutate()} disabled={!branch}>
-            Create branch
-          </button>
-        </div>
-      </div>
+          {(repos.data?.repos.length ?? 0) > 0 && (
+            <>
+              <label className="field">
+                <span>Search</span>
+                <input
+                  value={repoQuery}
+                  onChange={(e) => setRepoQuery(e.target.value)}
+                  placeholder="owner/name"
+                />
+              </label>
+              <div className="sync-repo-list">
+                {filteredRepos.map((r) => (
+                  <button
+                    key={r.full_name}
+                    type="button"
+                    className={`sync-repo-item ${selected?.full_name === r.full_name ? "sync-repo-item--selected" : ""}`}
+                    onClick={() => setSelected(r)}
+                  >
+                    <span className="font-medium">{r.full_name}</span>
+                    <span className="muted text-xs">{r.private ? "private" : "public"}</span>
+                  </button>
+                ))}
+                {filteredRepos.length === 0 && (
+                  <p className="muted text-sm px-1">No matches</p>
+                )}
+              </div>
+            </>
+          )}
 
-      {info && <p className="text-emerald-300 text-sm">{info}</p>}
-      {error && <p className="error text-sm">{error}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="field">
+              <span>Owner (fallback)</span>
+              <input value={manualOwner} onChange={(e) => setManualOwner(e.target.value)} />
+            </label>
+            <label className="field">
+              <span>Repo name</span>
+              <input value={manualName} onChange={(e) => setManualName(e.target.value)} />
+            </label>
+          </div>
+          <Button
+            onClick={() => connect.mutate()}
+            disabled={connect.isPending || (!selected && (!manualOwner || !manualName))}
+          >
+            {connect.isPending ? "Connecting…" : "Connect"}
+          </Button>
+          {status.data?.configured && (
+            <Button variant="ghost" onClick={() => setStep(3)}>
+              Continue to sync
+            </Button>
+          )}
+        </div>
+      )}
+
+      {step === 3 && (
+        <div className="card space-y-4">
+          <h2 className="text-lg font-medium">Sync</h2>
+          <div className="sync-status-grid">
+            <div>
+              <div className="muted text-xs">Remote</div>
+              <div className="text-sm break-all">{status.data?.remote_url || "—"}</div>
+            </div>
+            <div>
+              <div className="muted text-xs">Branch</div>
+              <div className="text-sm">{status.data?.branch || status.data?.default_branch || "—"}</div>
+            </div>
+            <div>
+              <div className="muted text-xs">Dirty</div>
+              <div className="text-sm">{status.data?.dirty ? "yes" : "no"}</div>
+            </div>
+            <div>
+              <div className="muted text-xs">Flows (local / remote)</div>
+              <div className="text-sm">
+                {status.data?.local_flow_count ?? 0} / {status.data?.remote_flow_count ?? 0}
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            <Button className="min-w-[120px]" onClick={() => push.mutate()} disabled={push.isPending}>
+              {push.isPending ? "Pushing…" : "Push"}
+            </Button>
+            <Button
+              className="min-w-[120px]"
+              variant="ghost"
+              onClick={() => pull.mutate()}
+              disabled={pull.isPending}
+            >
+              {pull.isPending ? "Pulling…" : "Pull"}
+            </Button>
+            <Button variant="ghost" onClick={() => setStep(2)}>
+              Change repo
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

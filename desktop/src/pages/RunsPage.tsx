@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import mermaid from "mermaid";
 import { Fragment, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { RunState } from "../api/types";
 import Alert from "../components/ui/Alert";
@@ -14,6 +14,7 @@ mermaid.initialize({ startOnLoad: false, theme: "dark" });
 
 /** Runs history + live detail; deep-links via ?flow_id=&run_id=. */
 export default function RunsPage() {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const flows = useQuery({ queryKey: ["flows"], queryFn: () => api.listFlows() });
@@ -233,6 +234,16 @@ export default function RunsPage() {
               </p>
             </div>
             <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  navigate(
+                    `/flows?edit=${encodeURIComponent(selected.flow_id)}&run_id=${encodeURIComponent(selected.run_id)}`,
+                  )
+                }
+              >
+                View on canvas
+              </Button>
               {(selected.status === "running" ||
                 selected.status === "paused" ||
                 selected.status === "pending") && (

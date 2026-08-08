@@ -9,17 +9,18 @@ import RunsPage from "./pages/RunsPage";
 import SchedulesPage from "./pages/SchedulesPage";
 import SyncPage from "./pages/SyncPage";
 import type { DaemonStatus } from "./api/types";
+import logo from "./assets/navbe-logo.png";
 
 const primaryLinks = [
   { to: "/", label: "Home", end: true, hint: "Start here" },
   { to: "/flows", label: "Flows", hint: "Build & run" },
+  { to: "/schedules", label: "Schedules", hint: "Run on a timer" },
   { to: "/runs", label: "Results", hint: "What happened" },
 ];
 
 const secondaryLinks = [
   { to: "/credentials", label: "Credentials" },
   { to: "/catalog", label: "Catalog" },
-  { to: "/schedules", label: "Schedules" },
   { to: "/sync", label: "Sync" },
 ];
 
@@ -42,8 +43,11 @@ export default function App() {
     <div className="app-shell">
       <aside className="app-rail">
         <div className="app-brand">
-          <div className="app-brand__name">Navbe</div>
-          <div className="app-brand__tag">Local workflows</div>
+          <img src={logo} alt="" className="app-brand__logo" />
+          <div className="app-brand__text">
+            <div className="app-brand__name">Navbe</div>
+            <div className="app-brand__tag">Local workflows</div>
+          </div>
           <div className="engine-pill" title={daemon.data?.mcp_url ?? undefined}>
             <span className={`engine-pill__dot ${ready ? "engine-pill__dot--ok" : ""}`} />
             {ready ? "Online" : "Starting…"}

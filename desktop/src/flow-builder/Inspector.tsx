@@ -19,6 +19,7 @@ interface InspectorProps {
   selectedEdge: Edge<FlowEdgeData> | null;
   stepCatalog: Record<string, StepCatalogEntry>;
   connectorCatalog: Record<string, ConnectorCatalogEntry>;
+  readOnly?: boolean;
   onMetaChange: (patch: Partial<FlowMeta>) => void;
   onNodeChange: (nodeId: string, patch: Partial<StepNodeData> & { id?: string }) => void;
   onEdgeCondition: (edgeId: string, condition: string | null) => void;
@@ -36,6 +37,7 @@ export default function Inspector({
   selectedEdge,
   stepCatalog,
   connectorCatalog,
+  readOnly = false,
   onMetaChange,
   onNodeChange,
   onEdgeCondition,
@@ -68,16 +70,28 @@ export default function Inspector({
             {selectedNode && (
               <div className="space-y-3">
                 <h3 className="font-medium text-sm">Node</h3>
+                {selectedNode.data.executionStatus && (
+                  <Alert tone={selectedNode.data.executionError ? "error" : "info"}>
+                    Status: {selectedNode.data.executionStatus}
+                    {selectedNode.data.executionError && (
+                      <pre className="mt-2 whitespace-pre-wrap text-xs">
+                        {selectedNode.data.executionError}
+                      </pre>
+                    )}
+                  </Alert>
+                )}
                 <label className="field">
                   <span>ID</span>
                   <input
                     value={selectedNode.id}
+                    disabled={readOnly}
                     onChange={(e) => onNodeChange(selectedNode.id, { id: e.target.value })}
                   />
                 </label>
                 <label className="field">
                   <span>Step type</span>
                   <select
+                    disabled={readOnly}
                     value={selectedNode.data.step_type}
                     onChange={(e) =>
                       onNodeChange(selectedNode.id, { step_type: e.target.value, config: {} })
@@ -93,11 +107,12 @@ export default function Inspector({
                 <Button
                   variant="ghost"
                   className="w-full"
-                  disabled={selectedNode.data.isEntry}
+                  disabled={readOnly || selectedNode.data.isEntry}
                   onClick={() => onSetEntry(selectedNode.id)}
                 >
                   {selectedNode.data.isEntry ? "Entry node" : "Set as entry"}
                 </Button>
+                {!readOnly && (
                 <SchemaForm
                   schema={
                     (stepCatalog[selectedNode.data.step_type]?.config_schema ?? {
@@ -109,6 +124,12 @@ export default function Inspector({
                   onChange={(config) => onNodeChange(selectedNode.id, { config })}
                   connectorAliases={aliases}
                 />
+                )}
+                {readOnly && (
+                  <pre className="text-xs muted whitespace-pre-wrap">
+                    {JSON.stringify(selectedNode.data.config ?? {}, null, 2)}
+                  </pre>
+                )}
               </div>
             )}
             {!selectedNode && selectedEdge && (
@@ -122,6 +143,7 @@ export default function Inspector({
                   <input
                     value={selectedEdge.data?.condition ?? ""}
                     placeholder="optional"
+                    disabled={readOnly}
                     onChange={(e) =>
                       onEdgeCondition(selectedEdge.id, e.target.value || null)
                     }
@@ -131,8 +153,9 @@ export default function Inspector({
             )}
             {!selectedNode && !selectedEdge && (
               <p className="muted text-sm">
-                Select a step to edit its config, or an edge to set a condition. Use the Flow tab for
-                id/name/entry.
+                {readOnly
+                  ? "Select a step to see its run status and config."
+                  : "Select a step to edit its config, or an edge to set a condition. Use the Flow tab for id/name/entry."}
               </p>
             )}
           </>
@@ -142,19 +165,21 @@ export default function Inspector({
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <h3 className="font-medium text-sm">Connectors</h3>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  const alias = uniqueAlias(meta.connectors);
-                  onConnectorUpsert(alias, {
-                    type: connectorTypes[0] ?? "http",
-                    config: {},
-                  });
-                }}
-              >
-                Add
-              </Button>
+              {!readOnly && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const alias = uniqueAlias(meta.connectors);
+                    onConnectorUpsert(alias, {
+                      type: connectorTypes[0] ?? "http",
+                      config: {},
+                    });
+                  }}
+                >
+                  Add
+                </Button>
+              )}
             </div>
             {aliases.length === 0 && (
               <EmptyState

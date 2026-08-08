@@ -1,19 +1,41 @@
+import { useMemo, useState } from "react";
+
 const MIME = "application/navbe-step";
 
 interface PaletteProps {
   stepTypes: string[];
   titles?: Record<string, string>;
   onAdd: (stepType: string) => void;
+  hidden?: boolean;
 }
 
-/** Left rail: click or drag catalog step types onto the canvas. */
-export default function Palette({ stepTypes, titles = {}, onAdd }: PaletteProps) {
+/** Left rail: search + click/drag catalog step types. */
+export default function Palette({ stepTypes, titles = {}, onAdd, hidden }: PaletteProps) {
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return stepTypes;
+    return stepTypes.filter((t) => {
+      const title = (titles[t] ?? "").toLowerCase();
+      return t.toLowerCase().includes(needle) || title.includes(needle);
+    });
+  }, [stepTypes, titles, q]);
+
+  if (hidden) return null;
+
   return (
     <aside className="flow-palette">
       <div className="flow-palette__heading">Add a step</div>
-      <p className="muted text-xs px-2 mb-2">Click or drag onto the canvas</p>
+      <div className="px-2 pb-2">
+        <input
+          className="flow-palette__search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search steps…"
+        />
+      </div>
       <ul className="flow-palette__list">
-        {stepTypes.map((t) => (
+        {filtered.map((t) => (
           <li key={t}>
             <button
               type="button"
@@ -30,13 +52,13 @@ export default function Palette({ stepTypes, titles = {}, onAdd }: PaletteProps)
             </button>
           </li>
         ))}
-        {stepTypes.length === 0 && <li className="muted text-xs px-2">No step types</li>}
+        {filtered.length === 0 && <li className="muted text-xs px-2">No matches</li>}
       </ul>
     </aside>
   );
 }
 
-/** Turn set_var into "Set var" for humans. */
+/** Turn set_var into "Set var". */
 function humanize(stepType: string): string {
   return stepType
     .split("_")

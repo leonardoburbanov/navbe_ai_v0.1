@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { DaemonStatus } from "../api/types";
+import logo from "../assets/navbe-logo.png";
 import Alert from "../components/ui/Alert";
 import Button from "../components/ui/Button";
 import { runsHref } from "../lib/runsNav";
@@ -74,6 +75,7 @@ export default function HomePage() {
   return (
     <div className="home">
       <div className="home-hero">
+        <img src={logo} alt="" className="home-logo" />
         <p className="home-kicker">Navbe</p>
         <h1 className="home-title">Run local workflows</h1>
         <p className="home-lead">

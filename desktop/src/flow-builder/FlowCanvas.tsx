@@ -1,6 +1,7 @@
 import {
   Background,
   Controls,
+  MiniMap,
   ReactFlow,
   type Connection,
   type Edge,
@@ -25,9 +26,10 @@ interface FlowCanvasProps {
   onSelectionChange: (params: OnSelectionChangeParams) => void;
   onDropStep: (stepType: string, position: { x: number; y: number }) => void;
   onNodeDragStop: () => void;
+  readOnly?: boolean;
 }
 
-/** React Flow canvas with drop target for palette steps. */
+/** React Flow canvas with minimap and optional read-only runtime mode. */
 export default function FlowCanvas({
   nodes,
   edges,
@@ -37,6 +39,7 @@ export default function FlowCanvas({
   onSelectionChange,
   onDropStep,
   onNodeDragStop,
+  readOnly = false,
 }: FlowCanvasProps) {
   const nodeTypes = useMemo(() => ({ [STEP_NODE_TYPE]: StepNode }), []);
   const rfRef = useRef<ReactFlowInstance<Node<StepNodeData>, Edge<FlowEdgeData>> | null>(null);
@@ -49,6 +52,7 @@ export default function FlowCanvas({
   const onDrop = useCallback(
     (e: DragEvent) => {
       e.preventDefault();
+      if (readOnly) return;
       const stepType = e.dataTransfer.getData(STEP_DRAG_MIME);
       if (!stepType || !rfRef.current) return;
       const position = rfRef.current.screenToFlowPosition({
@@ -57,7 +61,7 @@ export default function FlowCanvas({
       });
       onDropStep(stepType, position);
     },
-    [onDropStep],
+    [onDropStep, readOnly],
   );
 
   return (
@@ -66,23 +70,33 @@ export default function FlowCanvas({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
+        onNodesChange={readOnly ? undefined : onNodesChange}
+        onEdgesChange={readOnly ? undefined : onEdgesChange}
+        onConnect={readOnly ? undefined : onConnect}
         onSelectionChange={onSelectionChange}
         onInit={(instance) => {
           rfRef.current = instance;
         }}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-        onNodeDragStop={onNodeDragStop}
+        onDragOver={readOnly ? undefined : onDragOver}
+        onDrop={readOnly ? undefined : onDrop}
+        onNodeDragStop={readOnly ? undefined : onNodeDragStop}
+        nodesDraggable={!readOnly}
+        nodesConnectable={!readOnly}
+        elementsSelectable
         fitView
         colorMode="dark"
-        deleteKeyCode={["Backspace", "Delete"]}
+        deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
+        defaultEdgeOptions={{ style: { strokeWidth: 2 }, type: "smoothstep" }}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={16} size={1} />
+        <Background gap={20} size={1} color="rgba(255,255,255,0.06)" />
         <Controls />
+        <MiniMap
+          pannable
+          zoomable
+          maskColor="rgba(10,10,12,0.7)"
+          nodeColor={() => "#3a3a42"}
+        />
       </ReactFlow>
     </div>
   );

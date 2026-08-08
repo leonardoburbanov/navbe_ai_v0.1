@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { FlowSpec } from "../api/types";
+import ScheduleDialog from "../components/ScheduleDialog";
 import Alert from "../components/ui/Alert";
 import Button from "../components/ui/Button";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
@@ -12,18 +13,24 @@ import FlowEditor from "../flow-builder/FlowEditor";
 import { emptySpec } from "../flow-builder/mapSpec";
 import { runsHref } from "../lib/runsNav";
 
-/** Flow list as simple cards: Run / Edit / Delete. */
+/** Flow list as simple cards: Run / Schedule / Edit / Delete. */
 export default function FlowsPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
   const flows = useQuery({ queryKey: ["flows"], queryFn: () => api.listFlows() });
   const catalog = useQuery({ queryKey: ["catalog-full"], queryFn: () => api.catalogFull() });
   const [editing, setEditing] = useState<FlowSpec | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [busyFlowId, setBusyFlowId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [scheduleFlowId, setScheduleFlowId] = useState<string | null>(null);
+
+  const paramEdit = searchParams.get("edit");
+  const paramRun = searchParams.get("run_id");
 
   const loadFlow = useMutation({
     mutationFn: (flowId: string) => api.getFlow(flowId),
@@ -38,6 +45,17 @@ export default function FlowsPage() {
     },
     onError: (err: Error) => setListError(err.message),
   });
+
+  useEffect(() => {
+    if (!paramEdit) return;
+    if (editing?.flow_id === paramEdit && !isNew) {
+      setActiveRunId(paramRun);
+      return;
+    }
+    setActiveRunId(paramRun);
+    loadFlow.mutate(paramEdit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paramEdit, paramRun]);
 
   const startRun = useMutation({
     mutationFn: (flowId: string) => api.startRun(flowId),
@@ -61,17 +79,44 @@ export default function FlowsPage() {
     onError: (err: Error) => setListError(err.message),
   });
 
+  function closeEditor() {
+    setEditing(null);
+    setActiveRunId(null);
+    setIsNew(false);
+    setSearchParams({}, { replace: true });
+  }
+
+  function openCanvasRun(flowId: string, runId: string) {
+    setActiveRunId(runId);
+    setSearchParams({ edit: flowId, run_id: runId }, { replace: true });
+    if (!editing || editing.flow_id !== flowId) {
+      loadFlow.mutate(flowId);
+    }
+  }
+
   if (editing && catalog.data) {
     return (
-      <FlowEditor
-        key={`${editing.flow_id || "draft"}-${isNew ? "new" : "edit"}`}
-        initial={editing}
-        isNew={isNew}
-        stepCatalog={catalog.data.steps}
-        connectorCatalog={catalog.data.connectors}
-        onClose={() => setEditing(null)}
-        onRan={(flowId, runId) => navigate(runsHref(flowId, runId))}
-      />
+      <>
+        <FlowEditor
+          key={`${editing.flow_id || "draft"}-${isNew ? "new" : "edit"}-${activeRunId ?? ""}`}
+          initial={editing}
+          created={!isNew}
+          runId={activeRunId}
+          stepCatalog={catalog.data.steps}
+          connectorCatalog={catalog.data.connectors}
+          onClose={closeEditor}
+          onRan={(flowId, runId) => {
+            void qc.invalidateQueries({ queryKey: ["runs"] });
+            openCanvasRun(flowId, runId);
+          }}
+          onSchedule={(flowId) => setScheduleFlowId(flowId)}
+        />
+        <ScheduleDialog
+          open={scheduleFlowId != null}
+          defaultFlowId={scheduleFlowId ?? ""}
+          onClose={() => setScheduleFlowId(null)}
+        />
+      </>
     );
   }
 
@@ -138,10 +183,17 @@ export default function FlowsPage() {
                 >
                   {busyFlowId === f.flow_id ? "Starting…" : "Run"}
                 </Button>
+                <Button variant="ghost" onClick={() => setScheduleFlowId(f.flow_id)}>
+                  Schedule
+                </Button>
                 <Button
                   variant="ghost"
                   disabled={!catalog.data}
-                  onClick={() => loadFlow.mutate(f.flow_id)}
+                  onClick={() => {
+                    setActiveRunId(null);
+                    setSearchParams({ edit: f.flow_id }, { replace: true });
+                    loadFlow.mutate(f.flow_id);
+                  }}
                 >
                   Edit
                 </Button>
@@ -163,9 +215,16 @@ export default function FlowsPage() {
           spec.name = name;
           setEditing(spec);
           setIsNew(true);
+          setActiveRunId(null);
           setCreateOpen(false);
           setListError(null);
         }}
+      />
+
+      <ScheduleDialog
+        open={scheduleFlowId != null}
+        defaultFlowId={scheduleFlowId ?? ""}
+        onClose={() => setScheduleFlowId(null)}
       />
 
       <ConfirmDialog

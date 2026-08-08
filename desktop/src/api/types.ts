@@ -123,3 +123,43 @@ export interface DaemonStatus {
   log_path: string | null;
   error: string | null;
 }
+
+export interface SyncStatus {
+  configured: boolean;
+  initialized: boolean;
+  remote_url: string;
+  branch: string | null;
+  dirty: boolean;
+  flows_subdir: string;
+  default_branch: string;
+  local_flow_count: number;
+  remote_flow_count: number;
+  asset_counts?: Record<string, Record<string, number>>;
+  github_logged_in: boolean;
+  github_login: string | null;
+}
+
+export interface GithubAuthStatus {
+  logged_in: boolean;
+  login?: string | null;
+  [key: string]: unknown;
+}
+
+export interface GithubRepoItem {
+  full_name: string;
+  owner: string;
+  name: string;
+  private: boolean;
+  html_url?: string;
+  clone_url?: string;
+  default_branch?: string;
+}
+
+export interface SyncResult {
+  branch: string;
+  commit_sha?: string | null;
+  flows_added?: string[];
+  flows_updated?: string[];
+  flows_removed?: string[];
+  message?: string;
+}

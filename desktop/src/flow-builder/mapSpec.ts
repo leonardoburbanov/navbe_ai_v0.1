@@ -9,6 +9,9 @@ export type StepNodeData = {
   step_type: string;
   config: Record<string, unknown>;
   isEntry: boolean;
+  title?: string;
+  executionStatus?: string | null;
+  executionError?: string | null;
 };
 
 export type FlowEdgeData = {

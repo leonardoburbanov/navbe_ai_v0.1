@@ -6,10 +6,14 @@ import type {
   CredentialItem,
   FlowMetadata,
   FlowSpec,
+  GithubAuthStatus,
+  GithubRepoItem,
   RunState,
   ScheduleMeta,
   ScheduleSpec,
   StepCatalogEntry,
+  SyncResult,
+  SyncStatus,
   ValidationResult,
 } from "./types";
 
@@ -175,13 +179,13 @@ export const api = {
   listScheduleRuns: (id: string) =>
     request<{ runs: RunState[] }>(`/api/v1/schedules/${encodeURIComponent(id)}/runs`),
 
-  syncStatus: () => request<Record<string, unknown>>("/api/v1/sync/status"),
+    syncStatus: () => request<SyncStatus>("/api/v1/sync/status"),
   syncPush: (message?: string) =>
-    request<Record<string, unknown>>("/api/v1/sync/push", {
+    request<SyncResult>("/api/v1/sync/push", {
       method: "POST",
       body: JSON.stringify({ message: message ?? null }),
     }),
-  syncPull: () => request<Record<string, unknown>>("/api/v1/sync/pull", { method: "POST" }),
+  syncPull: () => request<SyncResult>("/api/v1/sync/pull", { method: "POST" }),
   syncConnect: (body: {
     owner: string;
     name: string;
@@ -189,17 +193,17 @@ export const api = {
     local_repo_dir?: string;
     default_branch?: string;
   }) =>
-    request<Record<string, unknown>>("/api/v1/sync/connect", {
+    request<SyncStatus>("/api/v1/sync/connect", {
       method: "POST",
       body: JSON.stringify(body),
     }),
   syncCheckout: (branch: string) =>
-    request<Record<string, unknown>>("/api/v1/sync/checkout", {
+    request<SyncStatus>("/api/v1/sync/checkout", {
       method: "POST",
       body: JSON.stringify({ branch }),
     }),
   syncCreateBranch: (name: string) =>
-    request<Record<string, unknown>>("/api/v1/sync/branches", {
+    request<SyncStatus>("/api/v1/sync/branches", {
       method: "POST",
       body: JSON.stringify({ name }),
     }),
@@ -209,11 +213,13 @@ export const api = {
       { method: "POST" },
     ),
   authGithubComplete: (timeout = 300) =>
-    request<Record<string, unknown>>("/api/v1/sync/auth/github/complete", {
+    request<GithubAuthStatus>("/api/v1/sync/auth/github/complete", {
       method: "POST",
       body: JSON.stringify({ timeout }),
     }),
-  authGithubStatus: () => request<Record<string, unknown>>("/api/v1/sync/auth/github"),
+  authGithubStatus: () => request<GithubAuthStatus>("/api/v1/sync/auth/github"),
   authGithubLogout: () =>
-    request<Record<string, unknown>>("/api/v1/sync/auth/github", { method: "DELETE" }),
+    request<GithubAuthStatus>("/api/v1/sync/auth/github", { method: "DELETE" }),
+  authGithubRepos: () =>
+    request<{ repos: GithubRepoItem[] }>("/api/v1/sync/auth/github/repos"),
 };
