@@ -95,12 +95,13 @@ pre {
 
 .app-brand__logo {
   display: block;
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 10px;
   flex-shrink: 0;
-  background: #0a0a0a;
+  background: transparent;
+  image-rendering: auto;
 }
 
 .app-brand__text {
@@ -177,12 +178,12 @@ pre {
 
 .home-logo {
   display: block;
-  width: 56px;
-  height: 56px;
+  width: 88px;
+  height: 88px;
   object-fit: contain;
-  border-radius: 12px;
-  margin-bottom: 0.75rem;
-  background: #0a0a0a;
+  border-radius: 14px;
+  margin-bottom: 0.85rem;
+  background: transparent;
 }
 
 .home-kicker {

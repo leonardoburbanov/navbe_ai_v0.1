@@ -34,6 +34,16 @@ desktop/src-tauri/resources/navbe/**
 !desktop/src-tauri/resources/navbe/.gitkeep
 desktop/src-tauri/gen/
 *.spec
+# Windows-only packaging — drop mobile/Store/macOS trees if `tauri icon` regenerates them
+desktop/src-tauri/icons/android/
+desktop/src-tauri/icons/ios/
+desktop/src-tauri/icons/Square*.png
+desktop/src-tauri/icons/StoreLogo.png
+desktop/src-tauri/icons/icon.icns
+desktop/src-tauri/icons/app-icon-source.png
+desktop/src-tauri/icons/_preview*.png
+# Local design sources (script input is navbe_without_bg.png when regenerating)
+desktop/navbe_dark_mode.png
 
 # OS / IDE
 .DS_Store
