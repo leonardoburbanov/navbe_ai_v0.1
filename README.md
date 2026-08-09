@@ -69,6 +69,8 @@ navbe bootstrap
 <table>
 <tr><td><b>One local daemon</b></td><td>MCP + schedules + REST from <code>navbe serve</code> — no separate control plane.</td></tr>
 <tr><td><b>Agent-first MCP</b></td><td>Catalog, flows, runs, secrets, schedules, and GitHub sync as stable tool names.</td></tr>
+<tr><td><b>Desktop ops console</b></td><td>Windows Tauri app starts/attaches the daemon; full GUI + LAN “Allow mobile”.</td></tr>
+<tr><td><b>Mobile + web companions</b></td><td>Pair over Wi‑Fi to run/monitor flows &amp; schedules from phone or browser.</td></tr>
 <tr><td><b>LangGraph execution</b></td><td>FlowSpec → graph compile/run, checkpoints, HITL <code>approval</code>, cancel / resume.</td></tr>
 <tr><td><b>Schedules that fire locally</b></td><td>Relative (<code>+30s</code> / <code>+1h</code>) or cron — ticker runs only while serve is up.</td></tr>
 <tr><td><b>Secrets stay on disk</b></td><td><code>$secret</code> resolves from local credentials JSON — never echoed in tool responses.</td></tr>
@@ -82,7 +84,9 @@ navbe bootstrap
 ```mermaid
 flowchart LR
   Agent["Cursor / Claude<br/>MCP client"]
-  CLI["navbe CLI<br/>ops console"]
+  CLI["navbe CLI"]
+  Desktop["Desktop Tauri"]
+  Companions["Mobile / Web<br/>LAN companions"]
   Daemon["navbe serve<br/>one process"]
   MCP["FastMCP /mcp"]
   API["FastAPI /api/v1"]
@@ -92,6 +96,9 @@ flowchart LR
 
   Agent -->|"tools + resources"| MCP
   CLI --> Daemon
+  Desktop -->|"spawn/attach"| Daemon
+  Desktop --> API
+  Companions -->|"Bearer LAN token"| API
   Daemon --> MCP
   Daemon --> API
   MCP --> Domains
@@ -103,6 +110,9 @@ flowchart LR
 | Layer | Path | Role |
 | ----- | ---- | ---- |
 | **CLI** | [`src/navbe/cli/`](src/navbe/cli/) | Human ops: bootstrap, status, secrets, sync, browse |
+| **Desktop** | [`desktop/`](desktop/) | Tauri ops console + engine lifecycle + Allow mobile |
+| **Mobile** | [`mobile/`](mobile/) | Expo LAN companion |
+| **Web** | [`web/`](web/) | Vite LAN companion (responsive) |
 | **MCP** | [`src/navbe/mcp_app/`](src/navbe/mcp_app/) | Thin FastMCP tools / resources → domain services |
 | **API** | [`src/navbe/api/`](src/navbe/api/) | Thin FastAPI routes → same services |
 | **Domains** | [`src/navbe/domains/`](src/navbe/domains/) | Use-cases (`models` / `interfaces` / `service`) |
@@ -118,6 +128,9 @@ navbe_ai/
 ├── scripts/
 │   ├── install.sh            # End-user installer (Unix)
 │   └── install.ps1           # End-user installer (Windows)
+├── desktop/                  # Tauri Windows ops console (EPIC 20)
+├── mobile/                   # Expo LAN companion (EPIC 21)
+├── web/                      # Vite LAN companion (EPIC 22)
 ├── claude-plugin/            # Claude Desktop plugin + skill
 ├── docs/
 │   ├── install.md
@@ -131,7 +144,6 @@ navbe_ai/
 │   └── domains/              # steps, connectors, flows, execution, …
 └── tests/
 ```
-
 ---
 
 ## Prerequisites
@@ -248,11 +260,15 @@ Coding conventions and layering rules for agents working in this repo: **[AGENTS
 
 | Resource | What's covered |
 | -------- | -------------- |
-| [docs/install.md](docs/install.md) | One-liner install, data home, distribution |
+| [docs/install.md](docs/install.md) | One-liner install, Desktop, mobile/web companions |
 | [docs/connect_agents.md](docs/connect_agents.md) | Cursor / Claude Desktop MCP wiring |
 | [docs/agents/quickstart.md](docs/agents/quickstart.md) | Repo map for contributors |
-| [docs/agents/architecture.md](docs/agents/architecture.md) | Layers, domains, sync, execution |
+| [docs/agents/architecture.md](docs/agents/architecture.md) | Layers, domains, sync, execution, UIs |
 | [docs/agents/operations.md](docs/agents/operations.md) | Env vars, ops commands |
+| [docs/agents/delivery.md](docs/agents/delivery.md) | EPIC index (incl. Desktop / mobile / web) |
+| [mobile/README.md](mobile/README.md) | Expo companion runbook |
+| [web/README.md](web/README.md) | Vite companion runbook |
+| [desktop/BUILD.md](desktop/BUILD.md) | Windows packaging |
 | [AGENTS.md](AGENTS.md) | Always-on rules for coding agents |
 | [claude-plugin/](claude-plugin/) | Claude Desktop plugin + `navbe-flows` skill |
 

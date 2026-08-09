@@ -33,7 +33,9 @@ Copy [`.env.example`](../../.env.example) to `.env` for local settings (never co
 | --- | --- |
 | `src/navbe/core/` | Config, paths (`~/.navbe` vs checkout), async DB, exceptions |
 | `src/navbe/cli/` | Human ops console (`navbe`, including `mcp configure`) |
-| `desktop/` | Tauri desktop ops console (EPIC 20; Windows installer) |
+| `desktop/` | Tauri desktop ops console (EPIC 20; Windows installer + LAN Allow mobile) |
+| `mobile/` | Expo phone LAN companion (EPIC 21; pair → flows / runs / schedules) |
+| `web/` | Vite browser LAN companion (EPIC 22; responsive mobile parity) |
 | `src/navbe/domains/steps/` | Standalone step contracts, registry, service, implementations |
 | `src/navbe/domains/connectors/` | Standalone connector contracts, registry, service, HTTP implementation |
 | `src/navbe/domains/secrets/` | Env-backed secret refs for connector configs |
@@ -66,8 +68,12 @@ Copy [`.env.example`](../../.env.example) to `.env` for local settings (never co
 - [EPIC 13](epics/epic-13.md) — human CLI (`navbe` ops console + `mcp configure`)
 - [EPIC 14](epics/epic-14.md) — GitHub OAuth device flow + workspace sync layout
 - [EPIC 15](epics/epic-15.md) — GitHub App Device Flow auth + token refresh
-- [EPIC 20](epics/epic-20.md) — Navbe Desktop (Tauri) Windows ops console
+- [EPIC 20](epics/epic-20.md) — Navbe Desktop (Tauri) Windows ops console + LAN pairing
+- [EPIC 21](epics/epic-21.md) — Mobile LAN companion (Expo)
+- [EPIC 22](epics/epic-22.md) — Web LAN companion (Vite)
 - [Connect agents](../connect_agents.md) — Claude Desktop plugin/skill + Cursor MCP setup
 - [Claude plugin](../../claude-plugin/) — `navbe-flows` skill + HTTP MCP URL
 - [Architecture](architecture.md) — layers and domain pattern
 - [Operations](operations.md) — commands, env, CI, releases
+- [Mobile README](../../mobile/README.md) / [Web README](../../web/README.md) — companion runbooks
+- [Desktop BUILD](../../desktop/BUILD.md) — Windows packaging

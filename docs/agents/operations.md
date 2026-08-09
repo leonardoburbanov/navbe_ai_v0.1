@@ -30,6 +30,21 @@ uv run navbe serve --help
 Prefer the commands documented in [AGENTS.md](../../AGENTS.md) and
 [../install.md](../install.md).
 
+### Companion UIs (contributors)
+
+```bash
+# Desktop (Windows; needs Rust + MSVC for tauri)
+cd desktop && pnpm install && pnpm tauri dev
+
+# Mobile
+cd mobile && npm install && npm start
+
+# Web companion
+cd web && pnpm install && pnpm dev
+```
+
+Pair phones/browsers via Desktop **Allow mobile** (see [../install.md](../install.md)).
+
 ## Environment
 
 | Variable | Purpose | Default |
@@ -43,6 +58,7 @@ Prefer the commands documented in [AGENTS.md](../../AGENTS.md) and
 | `NAVBE_GITHUB_APP_CLIENT_ID` | GitHub App client id (Device Flow) | Navbe AI public client id |
 | `NAVBE_GITHUB_APP_SLUG` | App slug for install URL | `navbe-ai` |
 | `NAVBE_GITHUB_OAUTH_CLIENT_ID` | Legacy alias for app client id | unset |
+| `NAVBE_LAN_TOKEN` | LAN pairing Bearer token (Desktop writes `lan_token` file) | unset / file |
 | `NAVBE_LOG_LEVEL` | Log level | `INFO` |
 | `NAVBE_MCP_SERVER_NAME` | MCP server name | `navbe` |
 

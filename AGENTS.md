@@ -48,12 +48,18 @@ src/navbe/
   cli/              # Human ops console (Click + Rich)
   dependencies.py
   main.py
+desktop/            # Tauri ops console (EPIC 20)
+mobile/             # Expo LAN companion (EPIC 21)
+web/                # Vite LAN companion (EPIC 22)
 pyproject.toml
 tests/
 ```
 
 Keep MCP tools and HTTP routes thin. Business logic lives in domain `service.py` files.
 Layering is enforced by `.importlinter` (`uv run lint-imports`).
+
+Human UIs (`desktop/`, `mobile/`, `web/`) call REST against the daemon; they are
+outside the Python import graph. See [docs/install.md](docs/install.md).
 
 ---
 

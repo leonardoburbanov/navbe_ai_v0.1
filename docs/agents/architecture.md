@@ -199,6 +199,20 @@ Clients (Claude Desktop, Cursor) connect to the same process over HTTP MCP at
 or `navbe serve` / `navbe serve --detach`. See [../install.md](../install.md)
 and [../connect_agents.md](../connect_agents.md).
 
+## Human UIs (outside `src/navbe`)
+
+| App | Stack | Role |
+| --- | --- | --- |
+| [`desktop/`](../../desktop/) | Tauri 2 + React + Vite | Full ops console; owns/attaches `navbe serve`; **Allow mobile** LAN pairing |
+| [`mobile/`](../../mobile/) | Expo / React Native | Phone LAN companion (flows / runs / schedules) |
+| [`web/`](../../web/) | Vite + React + Tailwind | Browser LAN companion (mobile feature parity) |
+
+Companions authenticate with `Authorization: Bearer <lan_token>` against the
+Desktop LAN base URL. They call REST only (`/api/v1/flows|runs|schedules`).
+When LAN pairing is enabled, CORS allows companion origins (`*` while a token
+is configured). EPICs: [20](epics/epic-20.md), [21](epics/epic-21.md),
+[22](epics/epic-22.md).
+
 ## Human CLI
 
 `navbe` is the ops console for humans (Typer + Rich). It calls the same
