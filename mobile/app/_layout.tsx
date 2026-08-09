@@ -74,6 +74,7 @@ function RootLayoutNav() {
           contentStyle: { backgroundColor: c.background },
         }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="flow/[id]" options={{ title: 'Flow' }} />
         <Stack.Screen name="run/[id]" options={{ title: 'Run detail' }} />
         <Stack.Screen name="scan" options={{ title: 'Scan QR', presentation: 'modal' }} />
       </Stack>

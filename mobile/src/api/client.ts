@@ -3,6 +3,7 @@
 import type {
   ConnectionSettings,
   FlowMetadata,
+  FlowSpec,
   RunState,
   ScheduleMeta,
   ScheduleSpec,
@@ -95,6 +96,8 @@ export const api = {
   version: () => request<VersionInfo>("/api/v1/version"),
 
   listFlows: () => request<FlowMetadata[]>("/api/v1/flows"),
+  getFlow: (flowId: string) =>
+    request<FlowSpec>(`/api/v1/flows/${encodeURIComponent(flowId)}`),
 
   listRuns: (flowId?: string) => {
     const qs = flowId ? `?flow_id=${encodeURIComponent(flowId)}` : "";

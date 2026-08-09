@@ -9,6 +9,32 @@ export interface FlowMetadata {
   path: string;
 }
 
+export interface ConnectorInstanceConfig {
+  type: string;
+  config: Record<string, unknown>;
+}
+
+export interface NodeSpec {
+  id: string;
+  step_type: string;
+  config: Record<string, unknown>;
+}
+
+export interface EdgeSpec {
+  from: string;
+  to?: string | null;
+  condition?: string | null;
+}
+
+export interface FlowSpec {
+  flow_id: string;
+  name?: string;
+  entry_node: string;
+  connectors?: Record<string, ConnectorInstanceConfig>;
+  nodes: NodeSpec[];
+  edges: EdgeSpec[];
+}
+
 export interface RunState {
   run_id: string;
   flow_id: string;

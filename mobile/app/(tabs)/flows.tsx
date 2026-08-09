@@ -7,7 +7,7 @@ import type { FlowMetadata } from '@/src/api/types';
 import { useConnection } from '@/src/ConnectionContext';
 import { useThemeColors } from '@/src/useThemeColors';
 
-/** Read-only flow list with Run. */
+/** Flow list — tap to view graph, Run to start. */
 export default function FlowsScreen() {
   const { connected } = useConnection();
   const c = useThemeColors();
@@ -22,7 +22,7 @@ export default function FlowsScreen() {
     mutationFn: (flowId: string) => api.startRun(flowId),
     onSuccess: (state) => {
       void qc.invalidateQueries({ queryKey: ['runs'] });
-      router.push(`/run/${state.run_id}`);
+      router.push({ pathname: '/run/[id]', params: { id: state.run_id } });
     },
   });
 
@@ -62,16 +62,17 @@ export default function FlowsScreen() {
           <Text style={{ color: c.textMuted }}>No flows on this engine.</Text>
         }
         renderItem={({ item }: { item: FlowMetadata }) => (
-          <View
-            style={[
-              styles.card,
-              { borderColor: c.border, backgroundColor: c.card },
-            ]}>
+          <Pressable
+            style={[styles.card, { borderColor: c.border, backgroundColor: c.card }]}
+            onPress={() =>
+              router.push({ pathname: '/flow/[id]', params: { id: item.flow_id } })
+            }>
             <View style={styles.cardBody}>
               <Text style={[styles.title, { color: c.text }]}>
                 {item.name || item.flow_id}
               </Text>
               <Text style={[styles.sub, { color: c.textMuted }]}>{item.flow_id}</Text>
+              <Text style={[styles.hint, { color: c.tint }]}>View graph</Text>
             </View>
             <Pressable
               style={[
@@ -80,10 +81,13 @@ export default function FlowsScreen() {
                 run.isPending && styles.disabled,
               ]}
               disabled={run.isPending}
-              onPress={() => run.mutate(item.flow_id)}>
+              onPress={(e) => {
+                e.stopPropagation?.();
+                run.mutate(item.flow_id);
+              }}>
               <Text style={[styles.btnText, { color: c.primaryText }]}>Run</Text>
             </Pressable>
-          </View>
+          </Pressable>
         )}
       />
       {run.isError ? (
@@ -111,6 +115,7 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, gap: 2 },
   title: { fontSize: 16, fontWeight: '700' },
   sub: { fontSize: 12 },
+  hint: { fontSize: 12, marginTop: 4, fontWeight: '600' },
   btn: {
     paddingHorizontal: 14,
     paddingVertical: 10,
