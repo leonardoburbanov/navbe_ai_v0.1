@@ -3,6 +3,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo } from 'react';
 import 'react-native-reanimated';
 
@@ -55,7 +56,7 @@ function RootLayoutNav() {
       ...base,
       colors: {
         ...base.colors,
-        primary: c.tint,
+        primary: c.signal,
         background: c.background,
         card: c.background,
         text: c.text,
@@ -67,15 +68,18 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider value={navTheme}>
+      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: c.background },
           headerTintColor: c.text,
+          headerTitleStyle: { fontWeight: '700' },
+          headerShadowVisible: false,
           contentStyle: { backgroundColor: c.background },
         }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="flow/[id]" options={{ title: 'Flow' }} />
-        <Stack.Screen name="run/[id]" options={{ title: 'Run detail' }} />
+        <Stack.Screen name="run/[id]" options={{ title: 'Run' }} />
         <Stack.Screen name="scan" options={{ title: 'Scan QR', presentation: 'modal' }} />
       </Stack>
     </ThemeProvider>

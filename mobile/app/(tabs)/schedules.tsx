@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Modal,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -13,13 +13,15 @@ import {
 
 import { api } from '@/src/api/client';
 import type { ScheduleMeta, ScheduleSpec } from '@/src/api/types';
+import { Btn, EmptyState, Screen, StatusPill } from '@/src/components/ui';
 import { useConnection } from '@/src/ConnectionContext';
 import { useThemeColors } from '@/src/useThemeColors';
 
-/** List / create / edit / enable / disable schedules. */
+/** Schedules with branded cards + bottom sheet editor. */
 export default function SchedulesScreen() {
   const { connected } = useConnection();
   const c = useThemeColors();
+  const router = useRouter();
   const qc = useQueryClient();
   const [editor, setEditor] = useState<ScheduleSpec | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,17 +64,21 @@ export default function SchedulesScreen() {
 
   if (!connected) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Text style={{ color: c.textMuted }}>Connect first (Connect tab).</Text>
-      </View>
+      <Screen>
+        <EmptyState
+          title="Connect first"
+          body="Pair with desktop to manage schedules from your phone."
+          action={<Btn label="Go to Home" variant="signal" onPress={() => router.push('/')} />}
+        />
+      </Screen>
     );
   }
 
   if (schedules.isLoading) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
-        <ActivityIndicator color={c.tint} />
-      </View>
+      <Screen style={styles.center}>
+        <ActivityIndicator color={c.signal} />
+      </Screen>
     );
   }
 
@@ -80,58 +86,82 @@ export default function SchedulesScreen() {
   const flowIds = (flows.data ?? []).map((f) => f.flow_id);
 
   return (
-    <View style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.heading, { color: c.text }]}>Schedules</Text>
-        <Pressable
-          style={[styles.btn, { backgroundColor: c.primary }]}
-          onPress={() =>
-            setEditor({
-              schedule_id: `sched-${Date.now().toString(36)}`,
-              flow_id: flowIds[0] ?? '',
-              when: '+1h',
-              enabled: true,
-              name: '',
-            })
-          }>
-          <Text style={[styles.btnText, { color: c.primaryText }]}>New</Text>
-        </Pressable>
-      </View>
-      {error ? (
-        <Text style={[styles.error, { color: c.danger }]}>{error}</Text>
-      ) : null}
+    <Screen>
       <FlatList
         data={list}
         keyExtractor={(item) => item.schedule_id}
         contentContainerStyle={styles.list}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.h1, { color: c.text }]}>Schedules</Text>
+              <Text style={[styles.sub, { color: c.textMuted }]}>
+                Timers fire while the desktop engine is online
+              </Text>
+            </View>
+            <Btn
+              label="New"
+              variant="signal"
+              onPress={() =>
+                setEditor({
+                  schedule_id: `sched-${Date.now().toString(36)}`,
+                  flow_id: flowIds[0] ?? '',
+                  when: '+1h',
+                  enabled: true,
+                  name: '',
+                })
+              }
+            />
+          </View>
+        }
         ListEmptyComponent={
-          <Text style={{ color: c.textMuted }}>No schedules yet.</Text>
+          <EmptyState
+            title="No schedules yet"
+            body="Create one here or from Desktop."
+            action={
+              <Btn
+                label="Create schedule"
+                variant="signal"
+                onPress={() =>
+                  setEditor({
+                    schedule_id: `sched-${Date.now().toString(36)}`,
+                    flow_id: flowIds[0] ?? '',
+                    when: '+1h',
+                    enabled: true,
+                    name: '',
+                  })
+                }
+              />
+            }
+          />
         }
         renderItem={({ item }: { item: ScheduleMeta }) => (
-          <View style={[styles.card, { borderColor: c.border, backgroundColor: c.card }]}>
-            <Text style={[styles.title, { color: c.text }]}>
-              {item.name || item.schedule_id}
-            </Text>
-            <Text style={[styles.sub, { color: c.textMuted }]}>
-              {item.flow_id} · {item.when} · {item.enabled ? 'on' : 'off'}
+          <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={styles.cardTop}>
+              <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
+                {item.name || item.schedule_id}
+              </Text>
+              <StatusPill label={item.enabled ? 'on' : 'off'} tone={item.enabled ? 'ok' : 'neutral'} />
+            </View>
+            <Text style={[styles.meta, { color: c.textMuted }]}>
+              {item.flow_id} · {item.when}
             </Text>
             {item.next_run_at ? (
-              <Text style={[styles.sub, { color: c.textMuted }]}>
-                Next: {new Date(item.next_run_at).toLocaleString()}
+              <Text style={[styles.meta, { color: c.textMuted }]}>
+                Next {new Date(item.next_run_at).toLocaleString()}
               </Text>
             ) : null}
-            <View style={styles.row}>
-              <Pressable
-                style={[styles.ghost, { borderColor: c.border }]}
+            <View style={styles.actions}>
+              <Btn
+                label={item.enabled ? 'Pause' : 'Enable'}
+                variant="ghost"
                 onPress={() =>
                   toggle.mutate({ id: item.schedule_id, enabled: item.enabled })
-                }>
-                <Text style={[styles.ghostText, { color: c.text }]}>
-                  {item.enabled ? 'Pause' : 'Enable'}
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[styles.ghost, { borderColor: c.border }]}
+                }
+              />
+              <Btn
+                label="Edit"
+                variant="ghost"
                 onPress={() =>
                   setEditor({
                     schedule_id: item.schedule_id,
@@ -140,140 +170,143 @@ export default function SchedulesScreen() {
                     enabled: item.enabled,
                     name: item.name ?? '',
                   })
-                }>
-                <Text style={[styles.ghostText, { color: c.text }]}>Edit</Text>
-              </Pressable>
+                }
+              />
             </View>
           </View>
         )}
       />
 
+      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+
       <Modal visible={editor != null} animationType="slide" transparent>
-        <View style={[styles.modalBackdrop, { backgroundColor: c.modalBackdrop }]}>
-          <View style={[styles.modal, { backgroundColor: c.modal }]}>
-            <Text style={[styles.heading, { color: c.text }]}>Schedule</Text>
+        <View style={[styles.backdrop, { backgroundColor: c.modalBackdrop }]}>
+          <View style={[styles.sheet, { backgroundColor: c.modal }]}>
+            <View style={[styles.sheetHandle, { backgroundColor: c.borderStrong }]} />
+            <Text style={[styles.h2, { color: c.text }]}>Schedule</Text>
             {editor && (
               <>
-                <Text style={[styles.label, { color: c.text }]}>ID</Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
-                  ]}
+                <Field
+                  label="ID"
                   value={editor.schedule_id}
-                  onChangeText={(schedule_id) => setEditor({ ...editor, schedule_id })}
-                  autoCapitalize="none"
-                  placeholderTextColor={c.textMuted}
+                  onChange={(schedule_id) => setEditor({ ...editor, schedule_id })}
                 />
-                <Text style={[styles.label, { color: c.text }]}>Flow ID</Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
-                  ]}
+                <Field
+                  label="Flow ID"
                   value={editor.flow_id}
-                  onChangeText={(flow_id) => setEditor({ ...editor, flow_id })}
-                  autoCapitalize="none"
+                  onChange={(flow_id) => setEditor({ ...editor, flow_id })}
                   placeholder={flowIds.join(', ') || 'flow_id'}
-                  placeholderTextColor={c.textMuted}
                 />
-                <Text style={[styles.label, { color: c.text }]}>When (+30s / +1h / cron)</Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
-                  ]}
+                <Field
+                  label="When"
                   value={editor.when}
-                  onChangeText={(when) => setEditor({ ...editor, when })}
-                  autoCapitalize="none"
-                  placeholderTextColor={c.textMuted}
+                  onChange={(when) => setEditor({ ...editor, when })}
+                  placeholder="+30s / +1h / cron"
                 />
-                <Text style={[styles.label, { color: c.text }]}>Name</Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
-                  ]}
+                <Field
+                  label="Name"
                   value={editor.name ?? ''}
-                  onChangeText={(name) => setEditor({ ...editor, name })}
-                  placeholderTextColor={c.textMuted}
+                  onChange={(name) => setEditor({ ...editor, name })}
                 />
-                <View style={styles.row}>
-                  <Pressable
-                    style={[styles.btn, { backgroundColor: c.primary }]}
-                    disabled={save.isPending}
-                    onPress={() => save.mutate(editor)}>
-                    <Text style={[styles.btnText, { color: c.primaryText }]}>
-                      {save.isPending ? 'Saving…' : 'Save'}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.ghost, { borderColor: c.border }]}
-                    onPress={() => setEditor(null)}>
-                    <Text style={[styles.ghostText, { color: c.text }]}>Cancel</Text>
-                  </Pressable>
+                <View style={styles.actions}>
+                  <Btn
+                    label={save.isPending ? 'Saving…' : 'Save'}
+                    variant="signal"
+                    loading={save.isPending}
+                    onPress={() => save.mutate(editor)}
+                    style={{ flex: 1 }}
+                  />
+                  <Btn label="Cancel" variant="ghost" onPress={() => setEditor(null)} />
                 </View>
               </>
             )}
           </View>
         </View>
       </Modal>
+    </Screen>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const c = useThemeColors();
+  return (
+    <View style={{ marginTop: 10 }}>
+      <Text style={[styles.fieldLabel, { color: c.textMuted }]}>{label}</Text>
+      <TextInput
+        style={[
+          styles.input,
+          { borderColor: c.borderStrong, backgroundColor: c.inputBg, color: c.text },
+        ]}
+        value={value}
+        onChangeText={onChange}
+        autoCapitalize="none"
+        placeholder={placeholder}
+        placeholderTextColor={c.textMuted}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  center: { alignItems: 'center', justifyContent: 'center' },
+  list: { padding: 16, paddingBottom: 40 },
   header: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 14,
   },
-  heading: { fontSize: 20, fontWeight: '700' },
-  list: { padding: 16 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  error: { paddingHorizontal: 16 },
+  h1: { fontSize: 28, fontWeight: '700', letterSpacing: -0.6 },
+  h2: { fontSize: 20, fontWeight: '700', marginBottom: 4 },
+  sub: { fontSize: 14, marginTop: 2 },
   card: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
     marginBottom: 10,
     gap: 4,
   },
-  title: { fontSize: 16, fontWeight: '700' },
-  sub: { fontSize: 12 },
-  row: { flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap' },
-  btn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  btnText: { fontWeight: '600' },
-  ghost: {
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  ghostText: { fontWeight: '600' },
-  modalBackdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modal: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  title: { fontSize: 16, fontWeight: '700', flex: 1 },
+  meta: { fontSize: 12 },
+  actions: { flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' },
+  error: { paddingHorizontal: 16, paddingBottom: 8 },
+  backdrop: { flex: 1, justifyContent: 'flex-end' },
+  sheet: {
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
     padding: 20,
-    gap: 6,
+    paddingBottom: 32,
   },
-  label: { fontSize: 12, fontWeight: '600', marginTop: 8 },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 14,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
   input: {
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
+    fontSize: 15,
   },
 });

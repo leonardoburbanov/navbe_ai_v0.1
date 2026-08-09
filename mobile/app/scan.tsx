@@ -1,8 +1,10 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
+import BrandMark from '@/src/components/BrandMark';
+import { Btn, Screen } from '@/src/components/ui';
 import { probeConnection } from '@/src/api/client';
 import { useConnection } from '@/src/ConnectionContext';
 import { useThemeColors } from '@/src/useThemeColors';
@@ -12,7 +14,7 @@ interface PairPayload {
   token?: string;
 }
 
-/** Scan desktop LAN pairing QR (`{"baseUrl","token"}`). */
+/** Scan desktop LAN pairing QR. */
 export default function ScanScreen() {
   const router = useRouter();
   const c = useThemeColors();
@@ -42,21 +44,18 @@ export default function ScanScreen() {
   }
 
   if (!permission) {
-    return <View style={[styles.center, { backgroundColor: c.background }]} />;
+    return <Screen />;
   }
 
   if (!permission.granted) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
+      <Screen style={styles.center}>
+        <BrandMark size="lg" />
         <Text style={[styles.lead, { color: c.textMuted }]}>
-          Camera access is needed to scan the desktop QR.
+          Allow camera access to scan the desktop pairing QR.
         </Text>
-        <Pressable
-          style={[styles.btn, { backgroundColor: c.primary }]}
-          onPress={() => void requestPermission()}>
-          <Text style={[styles.btnText, { color: c.primaryText }]}>Allow camera</Text>
-        </Pressable>
-      </View>
+        <Btn label="Allow camera" variant="signal" onPress={() => void requestPermission()} />
+      </Screen>
     );
   }
 
@@ -73,10 +72,14 @@ export default function ScanScreen() {
               }
         }
       />
+      <View style={styles.frameWrap} pointerEvents="none">
+        <View style={[styles.frame, { borderColor: c.signal }]} />
+        <Text style={styles.hint}>Align desktop QR in the frame</Text>
+      </View>
       {error ? (
         <Text style={[styles.error, { backgroundColor: c.danger }]}>{error}</Text>
       ) : null}
-      {busy ? <Text style={styles.hint}>Connecting…</Text> : null}
+      {busy ? <Text style={styles.busy}>Connecting…</Text> : null}
     </View>
   );
 }
@@ -84,10 +87,31 @@ export default function ScanScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   camera: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
-  lead: { textAlign: 'center' },
-  btn: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 },
-  btnText: { fontWeight: '600' },
+  center: { alignItems: 'center', justifyContent: 'center', padding: 28, gap: 16 },
+  lead: { textAlign: 'center', fontSize: 15, lineHeight: 22 },
+  frameWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  frame: {
+    width: 240,
+    height: 240,
+    borderWidth: 2,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+  },
+  hint: {
+    marginTop: 16,
+    color: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    overflow: 'hidden',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   error: {
     position: 'absolute',
     bottom: 40,
@@ -95,16 +119,20 @@ const styles = StyleSheet.create({
     right: 20,
     color: '#fff',
     padding: 12,
+    borderRadius: 10,
+    overflow: 'hidden',
+    textAlign: 'center',
+  },
+  busy: {
+    position: 'absolute',
+    top: 48,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    color: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 8,
     overflow: 'hidden',
-  },
-  hint: {
-    position: 'absolute',
-    top: 40,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    color: '#fff',
-    padding: 8,
-    borderRadius: 8,
+    fontWeight: '600',
   },
 });

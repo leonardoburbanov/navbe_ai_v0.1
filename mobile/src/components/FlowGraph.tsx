@@ -126,7 +126,7 @@ export default function FlowGraph({ spec }: { spec: FlowSpec }) {
                 refY="3"
                 orient="auto"
                 markerUnits="strokeWidth">
-                <Path d="M0,0 L6,3 L0,6 Z" fill={c.textMuted} />
+                <Path d="M0,0 L6,3 L0,6 Z" fill={c.signal} />
               </Marker>
             </Defs>
 
@@ -134,8 +134,9 @@ export default function FlowGraph({ spec }: { spec: FlowSpec }) {
               <Path
                 key={e.key}
                 d={e.path}
-                stroke={c.textMuted}
-                strokeWidth={1.5}
+                stroke={c.signal}
+                strokeOpacity={0.55}
+                strokeWidth={1.6}
                 fill="none"
                 markerEnd="url(#arrow)"
               />
@@ -147,7 +148,7 @@ export default function FlowGraph({ spec }: { spec: FlowSpec }) {
                   key={`${e.key}-label`}
                   x={e.midX}
                   y={e.midY - 4}
-                  fill={c.tint}
+                  fill={c.signal}
                   fontSize="10"
                   textAnchor="middle">
                   {truncate(e.label, 16)}
@@ -164,8 +165,8 @@ export default function FlowGraph({ spec }: { spec: FlowSpec }) {
                 height={NODE_H}
                 rx={10}
                 ry={10}
-                fill={c.card}
-                stroke={n.isEntry ? c.tint : c.border}
+                fill={n.isEntry ? c.signalSoft : c.card}
+                stroke={n.isEntry ? c.signal : c.borderStrong}
                 strokeWidth={n.isEntry ? 2 : 1}
               />
             ))}

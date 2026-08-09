@@ -1,14 +1,28 @@
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { api } from '@/src/api/client';
 import type { RunState } from '@/src/api/types';
+import { Btn, EmptyState, Screen, StatusPill } from '@/src/components/ui';
 import { useConnection } from '@/src/ConnectionContext';
 import { useThemeColors } from '@/src/useThemeColors';
-import type { ThemeColors } from '@/constants/Colors';
 
-/** List recent runs; tap for live detail. */
+function toneFor(status: string): 'ok' | 'live' | 'bad' | 'neutral' {
+  if (status === 'completed') return 'ok';
+  if (status === 'failed' || status === 'cancelled') return 'bad';
+  if (status === 'running' || status === 'pending' || status === 'paused') return 'live';
+  return 'neutral';
+}
+
+/** Runs history with live polling. */
 export default function RunsScreen() {
   const { connected } = useConnection();
   const c = useThemeColors();
@@ -22,89 +36,97 @@ export default function RunsScreen() {
 
   if (!connected) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Text style={{ color: c.textMuted }}>Connect first (Connect tab).</Text>
-      </View>
+      <Screen>
+        <EmptyState
+          title="Connect first"
+          body="Pair with the desktop engine to watch runs from here."
+          action={<Btn label="Go to Home" variant="signal" onPress={() => router.push('/')} />}
+        />
+      </Screen>
     );
   }
 
   if (runs.isLoading) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
-        <ActivityIndicator color={c.tint} />
-      </View>
+      <Screen style={styles.center}>
+        <ActivityIndicator color={c.signal} />
+      </Screen>
     );
   }
 
   if (runs.isError) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Text style={{ color: c.danger, textAlign: 'center' }}>{String(runs.error)}</Text>
-      </View>
+      <Screen>
+        <EmptyState title="Couldn’t load runs" body={String(runs.error)} />
+      </Screen>
     );
   }
 
   const data = runs.data?.runs ?? [];
 
   return (
-    <FlatList
-      style={{ backgroundColor: c.background }}
-      data={data}
-      keyExtractor={(item) => item.run_id}
-      contentContainerStyle={styles.list}
-      ListEmptyComponent={<Text style={{ color: c.textMuted }}>No runs yet.</Text>}
-      renderItem={({ item }: { item: RunState }) => {
-        const pill = statusColors(item.status, c);
-        return (
-          <Pressable
-            style={[styles.card, { borderColor: c.border, backgroundColor: c.card }]}
-            onPress={() => router.push(`/run/${item.run_id}`)}>
-            <View style={styles.row}>
-              <Text style={[styles.title, { color: c.text }]}>{item.flow_id}</Text>
-              <Text style={[styles.pill, { backgroundColor: pill.bg, color: pill.fg }]}>
-                {item.status}
-              </Text>
-            </View>
-            <Text style={[styles.sub, { color: c.textMuted }]}>{item.run_id}</Text>
+    <Screen>
+      <FlatList
+        data={data}
+        keyExtractor={(item) => item.run_id}
+        contentContainerStyle={styles.list}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <Text style={[styles.h1, { color: c.text }]}>Runs</Text>
             <Text style={[styles.sub, { color: c.textMuted }]}>
+              Live updates while the engine is online
+            </Text>
+          </View>
+        }
+        ListEmptyComponent={
+          <EmptyState title="No runs yet" body="Start one from the Flows tab." />
+        }
+        renderItem={({ item }: { item: RunState }) => (
+          <Pressable
+            style={({ pressed }) => [
+              styles.card,
+              {
+                backgroundColor: c.card,
+                borderColor: c.border,
+                opacity: pressed ? 0.9 : 1,
+              },
+            ]}
+            onPress={() =>
+              router.push({ pathname: '/run/[id]', params: { id: item.run_id } })
+            }>
+            <View style={styles.row}>
+              <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
+                {item.flow_id}
+              </Text>
+              <StatusPill label={item.status} tone={toneFor(item.status)} />
+            </View>
+            <Text style={[styles.meta, { color: c.textMuted }]} numberOfLines={1}>
+              {item.run_id}
+            </Text>
+            <Text style={[styles.meta, { color: c.textMuted }]}>
               {new Date(item.updated_at).toLocaleString()}
             </Text>
           </Pressable>
-        );
-      }}
-    />
+        )}
+      />
+    </Screen>
   );
 }
 
-function statusColors(status: string, c: ThemeColors): { bg: string; fg: string } {
-  if (status === 'completed') return { bg: c.successBg, fg: c.success };
-  if (status === 'failed' || status === 'cancelled') return { bg: c.dangerBg, fg: c.danger };
-  if (status === 'running' || status === 'pending' || status === 'paused') {
-    return { bg: c.warningBg, fg: c.warning };
-  }
-  return { bg: c.card, fg: c.textMuted };
-}
-
 const styles = StyleSheet.create({
-  list: { padding: 16 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  center: { alignItems: 'center', justifyContent: 'center' },
+  list: { padding: 16, paddingBottom: 32 },
+  header: { marginBottom: 14, gap: 4 },
+  h1: { fontSize: 28, fontWeight: '700', letterSpacing: -0.6 },
+  sub: { fontSize: 14 },
   card: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
     marginBottom: 10,
     gap: 4,
   },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   title: { fontSize: 16, fontWeight: '700', flex: 1 },
-  sub: { fontSize: 12 },
-  pill: {
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
+  meta: { fontSize: 12 },
 });

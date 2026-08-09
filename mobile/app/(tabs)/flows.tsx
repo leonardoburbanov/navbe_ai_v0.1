@@ -1,13 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { api } from '@/src/api/client';
 import type { FlowMetadata } from '@/src/api/types';
+import { Btn, EmptyState, Screen } from '@/src/components/ui';
 import { useConnection } from '@/src/ConnectionContext';
 import { useThemeColors } from '@/src/useThemeColors';
 
-/** Flow list — tap to view graph, Run to start. */
+/** Flow list — branded cards, tap to view graph. */
 export default function FlowsScreen() {
   const { connected } = useConnection();
   const c = useThemeColors();
@@ -28,103 +36,113 @@ export default function FlowsScreen() {
 
   if (!connected) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Text style={{ color: c.textMuted }}>Connect first (Connect tab).</Text>
-      </View>
+      <Screen>
+        <EmptyState
+          title="Connect first"
+          body="Pair with Navbe Desktop on the Home tab to see your flows."
+          action={<Btn label="Go to Home" variant="signal" onPress={() => router.push('/')} />}
+        />
+      </Screen>
     );
   }
 
   if (flows.isLoading) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
-        <ActivityIndicator color={c.tint} />
-      </View>
+      <Screen style={styles.center}>
+        <ActivityIndicator color={c.signal} />
+      </Screen>
     );
   }
 
   if (flows.isError) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Text style={{ color: c.danger, textAlign: 'center' }}>{String(flows.error)}</Text>
-      </View>
+      <Screen>
+        <EmptyState title="Couldn’t load flows" body={String(flows.error)} />
+      </Screen>
     );
   }
 
   const data = flows.data ?? [];
 
   return (
-    <View style={[styles.container, { backgroundColor: c.background }]}>
+    <Screen>
       <FlatList
         data={data}
         keyExtractor={(item) => item.flow_id}
         contentContainerStyle={styles.list}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <Text style={[styles.h1, { color: c.text }]}>Flows</Text>
+            <Text style={[styles.sub, { color: c.textMuted }]}>
+              {data.length} workflow{data.length === 1 ? '' : 's'} on this engine
+            </Text>
+          </View>
+        }
         ListEmptyComponent={
-          <Text style={{ color: c.textMuted }}>No flows on this engine.</Text>
+          <EmptyState title="No flows yet" body="Create one in Navbe Desktop, then pull to refresh." />
         }
         renderItem={({ item }: { item: FlowMetadata }) => (
           <Pressable
-            style={[styles.card, { borderColor: c.border, backgroundColor: c.card }]}
+            style={({ pressed }) => [
+              styles.card,
+              {
+                backgroundColor: c.card,
+                borderColor: c.border,
+                opacity: pressed ? 0.9 : 1,
+              },
+            ]}
             onPress={() =>
               router.push({ pathname: '/flow/[id]', params: { id: item.flow_id } })
             }>
+            <View style={[styles.accent, { backgroundColor: c.signal }]} />
             <View style={styles.cardBody}>
               <Text style={[styles.title, { color: c.text }]}>
                 {item.name || item.flow_id}
               </Text>
-              <Text style={[styles.sub, { color: c.textMuted }]}>{item.flow_id}</Text>
-              <Text style={[styles.hint, { color: c.tint }]}>View graph</Text>
+              <Text style={[styles.id, { color: c.textMuted }]}>{item.flow_id}</Text>
+              <Text style={[styles.link, { color: c.signal }]}>View graph →</Text>
             </View>
-            <Pressable
-              style={[
-                styles.btn,
-                { backgroundColor: c.primary },
-                run.isPending && styles.disabled,
-              ]}
-              disabled={run.isPending}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                run.mutate(item.flow_id);
-              }}>
-              <Text style={[styles.btnText, { color: c.primaryText }]}>Run</Text>
-            </Pressable>
+            <Btn
+              label="Run"
+              variant="primary"
+              loading={run.isPending}
+              onPress={() => run.mutate(item.flow_id)}
+              style={styles.runBtn}
+            />
           </Pressable>
         )}
       />
       {run.isError ? (
-        <Text style={[styles.errorBanner, { backgroundColor: c.errorBanner, color: '#fff' }]}>
+        <Text style={[styles.errorBanner, { backgroundColor: c.danger, color: '#fff' }]}>
           {String(run.error)}
         </Text>
       ) : null}
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  list: { padding: 16, gap: 10 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  center: { alignItems: 'center', justifyContent: 'center' },
+  list: { padding: 16, paddingBottom: 32 },
+  header: { marginBottom: 14, gap: 4 },
+  h1: { fontSize: 28, fontWeight: '700', letterSpacing: -0.6 },
+  sub: { fontSize: 14 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingRight: 12,
     marginBottom: 10,
+    overflow: 'hidden',
   },
-  cardBody: { flex: 1, gap: 2 },
+  accent: { width: 3, alignSelf: 'stretch', borderRadius: 2, marginLeft: 0 },
+  cardBody: { flex: 1, gap: 2, paddingLeft: 4 },
   title: { fontSize: 16, fontWeight: '700' },
-  sub: { fontSize: 12 },
-  hint: { fontSize: 12, marginTop: 4, fontWeight: '600' },
-  btn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  btnText: { fontWeight: '600' },
-  disabled: { opacity: 0.5 },
-  errorBanner: {
-    padding: 10,
-    textAlign: 'center',
-  },
+  id: { fontSize: 12 },
+  link: { fontSize: 12, fontWeight: '600', marginTop: 4 },
+  runBtn: { minWidth: 72, paddingHorizontal: 12 },
+  errorBanner: { padding: 10, textAlign: 'center' },
 });

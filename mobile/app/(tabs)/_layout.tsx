@@ -9,7 +9,7 @@ function TabBarIcon(props: {
   name: React.ComponentProps<typeof FontAwesome>['name'];
   color: string;
 }) {
-  return <FontAwesome size={22} style={{ marginBottom: -2 }} {...props} />;
+  return <FontAwesome size={20} style={{ marginBottom: -1 }} {...props} />;
 }
 
 export default function TabLayout() {
@@ -18,21 +18,31 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: c.tint,
+        tabBarActiveTintColor: c.signal,
         tabBarInactiveTintColor: c.tabIconDefault,
         tabBarStyle: {
           backgroundColor: c.background,
           borderTopColor: c.border,
+          height: 58,
+          paddingTop: 4,
         },
-        headerStyle: { backgroundColor: c.background },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        headerStyle: {
+          backgroundColor: c.background,
+          borderBottomColor: c.border,
+          shadowOpacity: 0,
+          elevation: 0,
+        },
+        headerTitleStyle: { fontWeight: '700', color: c.text },
         headerTintColor: c.text,
         headerShown: useClientOnlyValue(false, true),
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Connect',
-          tabBarIcon: ({ color }) => <TabBarIcon name="link" color={color} />,
+          title: 'Home',
+          headerTitle: 'Navbe',
+          tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
         }}
       />
       <Tabs.Screen

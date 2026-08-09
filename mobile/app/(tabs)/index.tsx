@@ -2,7 +2,9 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -10,11 +12,13 @@ import {
 } from 'react-native';
 
 import { MonoText } from '@/components/StyledText';
+import BrandMark from '@/src/components/BrandMark';
+import { Btn, Card, Screen } from '@/src/components/ui';
 import { probeConnection } from '@/src/api/client';
 import { useConnection } from '@/src/ConnectionContext';
 import { useThemeColors } from '@/src/useThemeColors';
 
-/** Pair with the desktop daemon over the same Wi‑Fi. */
+/** Pair with the desktop daemon — clean brand-first home. */
 export default function ConnectScreen() {
   const router = useRouter();
   const c = useThemeColors();
@@ -42,7 +46,7 @@ export default function ConnectScreen() {
     try {
       const version = await probeConnection({ baseUrl, token });
       await connect({ baseUrl, token });
-      setOkMsg(`Connected to Navbe ${version.version}`);
+      setOkMsg(`Connected · Navbe ${version.version}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -63,120 +67,181 @@ export default function ConnectScreen() {
 
   if (!ready) {
     return (
-      <View style={[styles.center, { backgroundColor: c.background }]}>
-        <ActivityIndicator color={c.tint} />
-      </View>
+      <Screen style={styles.center}>
+        <BrandMark size="lg" />
+        <ActivityIndicator color={c.signal} style={{ marginTop: 20 }} />
+      </Screen>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: c.background }]}>
-      <Text style={[styles.title, { color: c.text }]}>Connect to desktop</Text>
-      <Text style={[styles.lead, { color: c.textMuted }]}>
-        On the PC: Navbe Desktop → Allow mobile. Same Wi‑Fi. Paste URL + token, or scan the QR.
-      </Text>
+    <Screen>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
+          <View style={styles.hero}>
+            <BrandMark size="lg" showWordmark />
+            <Text style={[styles.lead, { color: c.textMuted }]}>
+              Run and monitor local workflows over the same Wi‑Fi as Desktop.
+            </Text>
+            <View style={styles.statusRow}>
+              <View
+                style={[
+                  styles.dot,
+                  { backgroundColor: connected ? c.success : c.textMuted },
+                ]}
+              />
+              <Text style={[styles.statusText, { color: c.textMuted }]}>
+                {connected ? 'Paired with desktop' : 'Not paired'}
+              </Text>
+            </View>
+          </View>
 
-      <Text style={[styles.label, { color: c.text }]}>Base URL</Text>
-      <TextInput
-        style={[
-          styles.input,
-          { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
-        ]}
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="url"
-        placeholder="http://192.168.1.10:8000"
-        placeholderTextColor={c.textMuted}
-        value={baseUrl}
-        onChangeText={setBaseUrl}
-      />
+          <Card>
+            <Text style={[styles.sectionTitle, { color: c.text }]}>
+              {connected ? 'Connection' : 'Pair with desktop'}
+            </Text>
+            <Text style={[styles.sectionBody, { color: c.textMuted }]}>
+              On Desktop: Allow mobile → paste URL & token, or Scan QR.
+            </Text>
 
-      <Text style={[styles.label, { color: c.text }]}>Pairing token</Text>
-      <TextInput
-        style={[
-          styles.input,
-          { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
-        ]}
-        autoCapitalize="none"
-        autoCorrect={false}
-        placeholder="Token from desktop"
-        placeholderTextColor={c.textMuted}
-        value={token}
-        onChangeText={setToken}
-      />
+            {connected && settings ? (
+              <View style={[styles.engineRow, { backgroundColor: c.inputBg, borderColor: c.border }]}>
+                <Text style={[styles.engineLabel, { color: c.textMuted }]}>Engine</Text>
+                <MonoText style={[styles.mono, { color: c.signal }]} numberOfLines={1}>
+                  {settings.baseUrl}
+                </MonoText>
+              </View>
+            ) : null}
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
-      {okMsg ? <Text style={[styles.ok, { color: c.success }]}>{okMsg}</Text> : null}
+            <Text style={[styles.label, { color: c.textMuted }]}>Base URL</Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  borderColor: c.border,
+                  backgroundColor: c.inputBg,
+                  color: c.text,
+                },
+              ]}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              placeholder="http://192.168.1.10:8000"
+              placeholderTextColor={c.textMuted}
+              value={baseUrl}
+              onChangeText={setBaseUrl}
+            />
 
-      <View style={styles.row}>
-        <Pressable
-          style={[
-            styles.btn,
-            { backgroundColor: c.primary },
-            busy && styles.btnDisabled,
-          ]}
-          disabled={busy || !baseUrl.trim() || !token.trim()}
-          onPress={() => void onConnect()}>
-          <Text style={[styles.btnPrimaryText, { color: c.primaryText }]}>
-            {busy ? 'Working…' : connected ? 'Reconnect' : 'Connect'}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.btn, styles.btnGhost, { borderColor: c.border }]}
-          onPress={() => router.push('/scan')}>
-          <Text style={[styles.btnGhostText, { color: c.text }]}>Scan QR</Text>
-        </Pressable>
-      </View>
+            <Text style={[styles.label, { color: c.textMuted }]}>Pairing token</Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  borderColor: c.border,
+                  backgroundColor: c.inputBg,
+                  color: c.text,
+                },
+              ]}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="Token from desktop"
+              placeholderTextColor={c.textMuted}
+              value={token}
+              onChangeText={setToken}
+              secureTextEntry={token.length > 8}
+            />
 
-      {connected && settings ? (
-        <View style={[styles.statusCard, { borderColor: c.border, backgroundColor: c.card }]}>
-          <Text style={[styles.statusTitle, { color: c.text }]}>Connected</Text>
-          <MonoText style={[styles.mono, { color: c.textMuted }]}>{settings.baseUrl}</MonoText>
-          <Pressable
-            style={[styles.btn, styles.btnGhost, styles.mt, { borderColor: c.border }]}
-            onPress={() => void onDisconnect()}>
-            <Text style={[styles.btnGhostText, { color: c.text }]}>Disconnect</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <Text style={[styles.hint, { color: c.textMuted }]}>
-          Not connected — Flows / Runs / Schedules need a pair.
-        </Text>
-      )}
-    </View>
+            {error ? <Text style={[styles.msg, { color: c.danger }]}>{error}</Text> : null}
+            {okMsg ? <Text style={[styles.msg, { color: c.success }]}>{okMsg}</Text> : null}
+
+            <View style={styles.row}>
+              <Btn
+                label={connected ? 'Reconnect' : 'Connect'}
+                variant="signal"
+                loading={busy}
+                disabled={!baseUrl.trim() || !token.trim()}
+                onPress={() => void onConnect()}
+                style={styles.half}
+              />
+              <Btn
+                label="Scan QR"
+                variant="ghost"
+                onPress={() => router.push('/scan')}
+                style={styles.half}
+              />
+            </View>
+          </Card>
+
+          {connected ? (
+            <View style={styles.footerActions}>
+              <Btn
+                label="Open flows"
+                variant="primary"
+                onPress={() => router.push('/flows')}
+                style={{ flex: 1 }}
+              />
+              <Btn
+                label="Disconnect"
+                variant="ghost"
+                loading={busy}
+                onPress={() => void onDisconnect()}
+                style={{ flex: 1 }}
+              />
+            </View>
+          ) : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, gap: 8 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
-  lead: { fontSize: 14, marginBottom: 12, lineHeight: 20 },
-  label: { fontSize: 13, fontWeight: '600', marginTop: 8 },
-  input: {
+  center: { alignItems: 'center', justifyContent: 'center' },
+  scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40, gap: 20 },
+  hero: { gap: 10 },
+  lead: { fontSize: 15, lineHeight: 22 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  statusText: { fontSize: 13, fontWeight: '500' },
+  sectionTitle: { fontSize: 17, fontWeight: '700', letterSpacing: -0.2 },
+  sectionBody: { fontSize: 13, lineHeight: 18, marginTop: 4, marginBottom: 12 },
+  engineRow: {
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 15,
+    marginBottom: 8,
+    gap: 2,
   },
-  row: { flexDirection: 'row', gap: 10, marginTop: 12, flexWrap: 'wrap' },
-  btn: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 },
-  btnPrimaryText: { fontWeight: '600' },
-  btnGhost: { borderWidth: 1 },
-  btnGhostText: { fontWeight: '600' },
-  btnDisabled: { opacity: 0.5 },
-  error: { marginTop: 8 },
-  ok: { marginTop: 8 },
-  statusCard: {
-    marginTop: 20,
-    padding: 14,
-    borderRadius: 12,
+  engineLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  input: {
     borderWidth: 1,
-    gap: 6,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 15,
+    marginTop: 6,
   },
-  statusTitle: { fontWeight: '700' },
+  row: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  half: { flex: 1 },
+  footerActions: { flexDirection: 'row', gap: 10 },
+  msg: { marginTop: 10, fontSize: 13 },
   mono: { fontSize: 12 },
-  mt: { marginTop: 8, alignSelf: 'flex-start' },
-  hint: { marginTop: 16, fontSize: 13 },
 });
