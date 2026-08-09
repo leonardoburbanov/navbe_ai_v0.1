@@ -32,6 +32,11 @@ lan_remote.json
 mobile/node_modules/
 mobile/.expo/
 
+# Web
+web/node_modules/
+web/dist/
+web/.vite/
+
 # Desktop / Tauri
 desktop/node_modules/
 desktop/dist/
