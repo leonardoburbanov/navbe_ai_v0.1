@@ -122,6 +122,16 @@ export interface DaemonStatus {
   mcp_url: string;
   log_path: string | null;
   error: string | null;
+  lan_enabled?: boolean;
+  lan_urls?: string[];
+  lan_token?: string | null;
+}
+
+export interface LanRemoteStatus {
+  enabled: boolean;
+  token: string | null;
+  urls: string[];
+  qr_payload: string | null;
 }
 
 export interface SyncStatus {

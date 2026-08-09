@@ -25,9 +25,12 @@ exports/
 serve.pid
 serve.log
 navbe_schedules/
+lan_token
+lan_remote.json
 
 # Mobile
 mobile/node_modules/
+mobile/.expo/
 
 # Desktop / Tauri
 desktop/node_modules/

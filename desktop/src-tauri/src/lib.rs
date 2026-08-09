@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use tauri::State;
 
@@ -15,6 +15,8 @@ const HEALTH_URL: &str = "http://127.0.0.1:8000/health";
 const VERSION_URL: &str = "http://127.0.0.1:8000/api/v1/version";
 const MCP_URL: &str = "http://127.0.0.1:8000/mcp";
 const LISTEN_PORT: u16 = 8000;
+const LAN_REMOTE_FILE: &str = "lan_remote.json";
+const LAN_TOKEN_FILE: &str = "lan_token";
 
 struct DaemonState {
     child: Mutex<Option<Child>>,
@@ -34,6 +36,22 @@ struct DaemonStatus {
     mcp_url: String,
     log_path: Option<String>,
     error: Option<String>,
+    lan_enabled: bool,
+    lan_urls: Vec<String>,
+    lan_token: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct LanRemoteConfig {
+    enabled: bool,
+}
+
+#[derive(Serialize, Clone)]
+struct LanRemoteStatus {
+    enabled: bool,
+    token: Option<String>,
+    urls: Vec<String>,
+    qr_payload: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -126,6 +144,158 @@ fn default_log_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".navbe")
         .join("serve.log")
+}
+
+fn navbe_home() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".navbe")
+}
+
+fn lan_remote_config_path() -> PathBuf {
+    navbe_home().join(LAN_REMOTE_FILE)
+}
+
+fn lan_token_path() -> PathBuf {
+    navbe_home().join(LAN_TOKEN_FILE)
+}
+
+fn read_lan_remote_config() -> LanRemoteConfig {
+    let path = lan_remote_config_path();
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return LanRemoteConfig::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn write_lan_remote_config(cfg: &LanRemoteConfig) -> Result<(), String> {
+    let home = navbe_home();
+    std::fs::create_dir_all(&home).map_err(|e| format!("mkdir {}: {e}", home.display()))?;
+    let path = lan_remote_config_path();
+    let raw = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
+    std::fs::write(&path, raw + "\n").map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+fn read_lan_token() -> Option<String> {
+    let Ok(raw) = std::fs::read_to_string(lan_token_path()) else {
+        return None;
+    };
+    let token = raw.trim().to_string();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token)
+    }
+}
+
+fn write_lan_token(token: &str) -> Result<(), String> {
+    let home = navbe_home();
+    std::fs::create_dir_all(&home).map_err(|e| format!("mkdir {}: {e}", home.display()))?;
+    let path = lan_token_path();
+    std::fs::write(&path, format!("{}\n", token.trim()))
+        .map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+fn clear_lan_token_file() {
+    let _ = std::fs::remove_file(lan_token_path());
+}
+
+fn generate_lan_token() -> String {
+    let mut buf = [0u8; 24];
+    if getrandom::fill(&mut buf).is_err() {
+        // Fallback should be rare; still produce something unique enough to type.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        return format!("navbe{nanos:x}");
+    }
+    // URL-safe base64 without padding (pairing paste / QR).
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity(32);
+    let mut i = 0;
+    while i + 2 < buf.len() {
+        let n = ((buf[i] as u32) << 16) | ((buf[i + 1] as u32) << 8) | (buf[i + 2] as u32);
+        out.push(TABLE[((n >> 18) & 63) as usize] as char);
+        out.push(TABLE[((n >> 12) & 63) as usize] as char);
+        out.push(TABLE[((n >> 6) & 63) as usize] as char);
+        out.push(TABLE[(n & 63) as usize] as char);
+        i += 3;
+    }
+    out
+}
+
+/// Best-effort IPv4 addresses other hosts on the LAN can use.
+fn lan_ipv4_addrs() -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                let ip = addr.ip();
+                if let std::net::IpAddr::V4(v4) = ip {
+                    if !v4.is_loopback() {
+                        out.push(v4.to_string());
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | \
+                 Where-Object { $_.IPAddress -notlike '127.*' -and $_.PrefixOrigin -ne 'WellKnown' } | \
+                 Select-Object -ExpandProperty IPAddress",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                for line in String::from_utf8_lossy(&output.stdout).lines() {
+                    let ip = line.trim();
+                    if !ip.is_empty() && !out.iter().any(|x| x == ip) {
+                        out.push(ip.to_string());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn lan_base_urls() -> Vec<String> {
+    lan_ipv4_addrs()
+        .into_iter()
+        .map(|ip| format!("http://{ip}:{LISTEN_PORT}"))
+        .collect()
+}
+
+fn build_lan_remote_status() -> LanRemoteStatus {
+    let cfg = read_lan_remote_config();
+    let token = if cfg.enabled {
+        read_lan_token()
+    } else {
+        None
+    };
+    let urls = if cfg.enabled {
+        lan_base_urls()
+    } else {
+        Vec::new()
+    };
+    let qr_payload = match (token.as_ref(), urls.first()) {
+        (Some(t), Some(url)) => Some(
+            serde_json::json!({ "baseUrl": url, "token": t }).to_string(),
+        ),
+        _ => None,
+    };
+    LanRemoteStatus {
+        enabled: cfg.enabled,
+        token,
+        urls,
+        qr_payload,
+    }
 }
 
 fn bundled_sidecar_path(app: &tauri::AppHandle) -> Option<PathBuf> {
@@ -311,6 +481,20 @@ fn spawn_sidecar(app: &tauri::AppHandle, state: &DaemonState) -> Result<(), Stri
         }
     }
 
+    let lan = read_lan_remote_config();
+    let bind_host = if lan.enabled {
+        "0.0.0.0"
+    } else {
+        "127.0.0.1"
+    };
+    let lan_token = if lan.enabled {
+        let token = read_lan_token().unwrap_or_else(generate_lan_token);
+        write_lan_token(&token)?;
+        Some(token)
+    } else {
+        None
+    };
+
     let exe = resolve_sidecar_path(app)?;
     let log_path = default_log_path();
     if let Some(parent) = log_path.parent() {
@@ -326,10 +510,15 @@ fn spawn_sidecar(app: &tauri::AppHandle, state: &DaemonState) -> Result<(), Stri
         .map_err(|e| format!("failed to clone log handle: {e}"))?;
 
     let mut cmd = Command::new(&exe);
-    cmd.args(["serve", "--host", "127.0.0.1", "--port", "8000"])
+    cmd.args(["serve", "--host", bind_host, "--port", "8000"])
         .stdin(Stdio::null())
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(log_err));
+    // Clear inherited token when LAN is off so loopback-only serve stays locked down.
+    cmd.env_remove("NAVBE_LAN_TOKEN");
+    if let Some(token) = lan_token.as_ref() {
+        cmd.env("NAVBE_LAN_TOKEN", token);
+    }
 
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
@@ -378,6 +567,24 @@ fn spawn_sidecar(app: &tauri::AppHandle, state: &DaemonState) -> Result<(), Stri
 
 fn ensure_daemon(app: &tauri::AppHandle, state: &DaemonState) {
     let packaged = is_packaged(app);
+    let lan_enabled = read_lan_remote_config().enabled;
+
+    // LAN remote needs 0.0.0.0 + pairing token — never attach to a foreign localhost serve.
+    if lan_enabled {
+        if health_ok() {
+            reclaim_port(app);
+        }
+        match spawn_sidecar(app, state) {
+            Ok(()) => {
+                *state.error.lock().unwrap() = None;
+            }
+            Err(err) => {
+                *state.error.lock().unwrap() = Some(err);
+            }
+        }
+        *state.booting.lock().unwrap() = false;
+        return;
+    }
 
     // Packaged desktop always owns the engine — never attach to a random CLI.
     if !packaged && daemon_ready() {
@@ -418,6 +625,7 @@ fn daemon_status(state: State<'_, DaemonState>) -> DaemonStatus {
     let attached = *state.attached.lock().unwrap();
     let booting = *state.booting.lock().unwrap();
     let running = daemon_ready();
+    let lan = build_lan_remote_status();
     DaemonStatus {
         running,
         attached,
@@ -426,7 +634,52 @@ fn daemon_status(state: State<'_, DaemonState>) -> DaemonStatus {
         mcp_url: MCP_URL.into(),
         log_path: state.log_path.lock().unwrap().clone(),
         error: state.error.lock().unwrap().clone(),
+        lan_enabled: lan.enabled,
+        lan_urls: lan.urls,
+        lan_token: lan.token,
     }
+}
+
+/// Enable or disable LAN remote (rebinds daemon host + rotates/clears pair token).
+#[tauri::command]
+fn lan_remote_set(
+    app: tauri::AppHandle,
+    state: State<'_, DaemonState>,
+    enabled: bool,
+) -> Result<LanRemoteStatus, String> {
+    if enabled {
+        let token = generate_lan_token();
+        write_lan_token(&token)?;
+        write_lan_remote_config(&LanRemoteConfig { enabled: true })?;
+    } else {
+        write_lan_remote_config(&LanRemoteConfig { enabled: false })?;
+        clear_lan_token_file();
+    }
+
+    *state.booting.lock().unwrap() = true;
+    *state.error.lock().unwrap() = None;
+    if let Some(mut child) = state.child.lock().unwrap().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    reclaim_port(&app);
+    match spawn_sidecar(&app, &state) {
+        Ok(()) => {
+            *state.error.lock().unwrap() = None;
+        }
+        Err(err) => {
+            *state.error.lock().unwrap() = Some(err.clone());
+            *state.booting.lock().unwrap() = false;
+            return Err(err);
+        }
+    }
+    *state.booting.lock().unwrap() = false;
+    Ok(build_lan_remote_status())
+}
+
+#[tauri::command]
+fn lan_remote_status() -> LanRemoteStatus {
+    build_lan_remote_status()
 }
 
 /// Force reclaim of :8000 and (re)start the owned sidecar. UI "Restart engine".
@@ -515,7 +768,13 @@ pub fn run() {
             // Uninstall hooks stop navbe.exe via resources/stop-all.cmd.
             if let tauri::WindowEvent::Destroyed = event {}
         })
-        .invoke_handler(tauri::generate_handler![daemon_status, daemon_restart, api_request])
+        .invoke_handler(tauri::generate_handler![
+            daemon_status,
+            daemon_restart,
+            lan_remote_set,
+            lan_remote_status,
+            api_request
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Navbe Desktop");
 }

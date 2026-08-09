@@ -276,6 +276,52 @@ pre {
   color: var(--ink-muted);
 }
 
+.home-lan {
+  margin-top: 1rem;
+}
+
+.home-lan__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.home-lan__details {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.home-lan__urls {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.home-lan__urls li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.home-lan__token {
+  margin-top: 0.75rem;
+}
+
+.home-lan__qr {
+  margin-top: 0.75rem;
+  display: inline-block;
+  padding: 0.5rem;
+  background: #fff;
+  border-radius: 0.5rem;
+}
+
 /* --- Flow cards --- */
 
 .flow-cards {

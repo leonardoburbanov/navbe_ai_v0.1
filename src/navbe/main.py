@@ -12,6 +12,7 @@ from navbe.api.v1.routes import runs as runs_routes
 from navbe.api.v1.routes import schedules as schedules_routes
 from navbe.api.v1.routes import secrets as secrets_routes
 from navbe.api.v1.routes import sync as sync_routes
+from navbe.core.lan_auth import LanAuthMiddleware, load_lan_token
 from navbe.dependencies import (
     get_catalog_service,
     get_db_engine,
@@ -60,16 +61,22 @@ def create_app() -> FastAPI:
                 await scheduler.stop()
 
     app = FastAPI(title="Navbe", version="0.1.0", lifespan=lifespan)
-    # Desktop webview origins only (Tauri prod + Vite/Tauri dev).
+    # Non-loopback clients need Bearer NAVBE_LAN_TOKEN / ~/.navbe/lan_token.
+    app.add_middleware(LanAuthMiddleware)
+
+    # Desktop webview origins. When LAN pairing is on, also allow Expo web/dev
+    # (security is the Bearer token, not browser origin).
+    desktop_origins = [
+        "tauri://localhost",
+        "http://localhost:1420",
+        "https://tauri.localhost",
+        "http://tauri.localhost",
+    ]
+    lan_enabled = load_lan_token() is not None
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "tauri://localhost",
-            "http://localhost:1420",
-            "https://tauri.localhost",
-            "http://tauri.localhost",
-        ],
-        allow_credentials=True,
+        allow_origins=["*"] if lan_enabled else desktop_origins,
+        allow_credentials=not lan_enabled,
         allow_methods=["*"],
         allow_headers=["*"],
     )
