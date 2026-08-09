@@ -31,6 +31,7 @@
 3. Rust sidecar lifecycle + `daemon_status` command.
 4. Windows packaging: `scripts/build_sidecar.ps1`, NSIS + MSI via Tauri, `.github/workflows/desktop-release.yml`.
 5. Docs: this epic, delivery/quickstart index, install guide Desktop section.
+6. LAN remote: “Allow mobile” binds `0.0.0.0:8000`, writes `~/.navbe/lan_token`, QR/`baseUrl`+token for EPIC 21 / 22 companions.
 
 ## Out of scope
 
@@ -38,6 +39,7 @@
 - Auto-update / code signing
 - Talking to the daemon over MCP from the UI (REST only)
 - Persisting canvas layout in FlowSpec / server (UI-only `localStorage` for now)
+- Building the phone/web companions themselves (EPIC 21 / 22)
 
 ## Layout
 

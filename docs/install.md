@@ -51,6 +51,26 @@ pnpm tauri build
 Artifacts land under `desktop/src-tauri/target/release/bundle/`.
 CI: [`.github/workflows/desktop-release.yml`](../.github/workflows/desktop-release.yml).
 
+### LAN companions (mobile + web)
+
+With **Desktop → Allow mobile** enabled, the daemon listens on the LAN
+(`0.0.0.0:8000`) and expects a Bearer pairing token. Companions talk **REST only**
+(same subset as the phone UI: flows, runs, schedules) — not MCP.
+
+| App | Path | Run (contributors) |
+| --- | --- | --- |
+| Mobile | [`mobile/`](../mobile/) | `cd mobile && npm install && npm start` |
+| Web | [`web/`](../web/) | `cd web && pnpm install && pnpm dev` → http://localhost:5173 |
+
+Pairing:
+
+1. Desktop: enable **Allow mobile** → copy base URL + token or show QR.
+2. Mobile: paste or scan QR (`{"baseUrl","token"}`).
+3. Web: paste URL + token, or paste the QR JSON payload into the optional field.
+
+Details: [mobile/README.md](../mobile/README.md), [web/README.md](../web/README.md),
+[EPIC 21](agents/epics/epic-21.md), [EPIC 22](agents/epics/epic-22.md).
+
 ### Pin a version / install from git
 
 ```bash
@@ -112,6 +132,7 @@ Files under that root (unless overridden by `NAVBE_*`):
 | `navbe_credentials.json` | Local secrets (never commit) |
 | `navbe_github_oauth.json` | Managed GitHub App token (never commit) |
 | `navbe_sync.json` | GitHub sync config |
+| `lan_token` / `lan_remote.json` | Desktop LAN pairing (Allow mobile) |
 | `serve.pid` / `serve.log` | Detached daemon metadata |
 
 See [agents/operations.md](agents/operations.md) for the full env table.
@@ -174,6 +195,7 @@ GitHub Actions builds, attaches assets, and publishes to PyPI (Trusted Publisher
 - OS service generators (pidfile daemon is enough)
 - Signed / auto-updating desktop builds
 - macOS / Linux desktop installers (Windows only in EPIC 20)
+- App Store / Play Store / hosted SaaS deploy of companions (Expo Go / `pnpm dev` for now)
 
 ## Website copy (paste into your install page)
 
