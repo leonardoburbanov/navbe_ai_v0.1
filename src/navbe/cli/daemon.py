@@ -24,9 +24,16 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 
 
+def probe_host(host: str) -> str:
+    """Host to use for HTTP health probes (``0.0.0.0`` is not a valid client target)."""
+    if host in ("0.0.0.0", "::", "[::]"):
+        return "127.0.0.1"
+    return host
+
+
 def default_mcp_url(*, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> str:
     """HTTP MCP URL that Cursor / Claude Desktop should connect to."""
-    return f"http://{host}:{port}/mcp"
+    return f"http://{probe_host(host)}:{port}/mcp"
 
 
 def serve_pid_path() -> Path:
@@ -57,7 +64,7 @@ class ServeState:
     @property
     def health_url(self) -> str:
         """Liveness probe URL."""
-        return f"http://{self.host}:{self.port}/health"
+        return f"http://{probe_host(self.host)}:{self.port}/health"
 
 
 def _write_pidfile(path: Path, *, pid: int, host: str, port: int) -> None:
@@ -109,7 +116,7 @@ def _pid_alive(pid: int) -> bool:
 
 def check_health(*, host: str, port: int, timeout: float = 1.0) -> bool:
     """GET /health and return True on HTTP 200."""
-    url = f"http://{host}:{port}/health"
+    url = f"http://{probe_host(host)}:{port}/health"
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.get(url)
@@ -169,16 +176,19 @@ def start_detached(*, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> Ser
     log_path = serve_log_path()
     pid_path = serve_pid_path()
 
-    cmd = [
-        sys.executable,
-        "-m",
-        "uvicorn",
-        "navbe.main:app",
-        "--host",
-        host,
-        "--port",
-        str(port),
-    ]
+    # Spawn a foreground `serve` (no --detach) so the same PyInstaller-safe
+    # path as serve_cmd is used. Never `python -m uvicorn navbe.main:app`.
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "serve", "--host", host, "--port", str(port)]
+    else:
+        cmd = [
+            sys.executable,
+            "-c",
+            (
+                "from navbe.main import app; import uvicorn; "
+                f"uvicorn.run(app, host={host!r}, port={port})"
+            ),
+        ]
     log_file = log_path.open("a", encoding="utf-8")
     popen_kwargs: dict[str, Any] = {
         "args": cmd,
@@ -199,7 +209,8 @@ def start_detached(*, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> Ser
     if not wait_until_healthy(host=host, port=port):
         stop_detached(force=True)
         raise RuntimeError(
-            f"navbe serve failed to become healthy at http://{host}:{port}/health; "
+            f"navbe serve failed to become healthy at "
+            f"http://{probe_host(host)}:{port}/health; "
             f"see {log_path}"
         )
     state = read_serve_state()

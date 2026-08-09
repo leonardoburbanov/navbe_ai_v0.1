@@ -6,48 +6,135 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use tauri::State;
 
 const BASE_URL: &str = "http://127.0.0.1:8000";
 const HEALTH_URL: &str = "http://127.0.0.1:8000/health";
+const VERSION_URL: &str = "http://127.0.0.1:8000/api/v1/version";
 const MCP_URL: &str = "http://127.0.0.1:8000/mcp";
+const LISTEN_PORT: u16 = 8000;
+const LAN_REMOTE_FILE: &str = "lan_remote.json";
+const LAN_TOKEN_FILE: &str = "lan_token";
 
 struct DaemonState {
     child: Mutex<Option<Child>>,
     attached: Mutex<bool>,
     error: Mutex<Option<String>>,
     log_path: Mutex<Option<String>>,
+    /// False until the first ensure_daemon attempt finishes.
+    booting: Mutex<bool>,
 }
 
 #[derive(Serialize, Clone)]
 struct DaemonStatus {
     running: bool,
     attached: bool,
+    booting: bool,
     base_url: String,
     mcp_url: String,
     log_path: Option<String>,
     error: Option<String>,
+    lan_enabled: bool,
+    lan_urls: Vec<String>,
+    lan_token: Option<String>,
 }
 
-fn health_ok() -> bool {
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct LanRemoteConfig {
+    enabled: bool,
+}
+
+#[derive(Serialize, Clone)]
+struct LanRemoteStatus {
+    enabled: bool,
+    token: Option<String>,
+    urls: Vec<String>,
+    qr_payload: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ApiProxyResponse {
+    status: u16,
+    body: String,
+}
+
+#[derive(serde::Deserialize)]
+struct VersionPayload {
+    features: Option<Vec<String>>,
+}
+
+fn http_get_ok(url: &str) -> bool {
     reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(1))
+        .timeout(Duration::from_secs(2))
         .build()
         .ok()
-        .and_then(|c| c.get(HEALTH_URL).send().ok())
+        .and_then(|c| c.get(url).send().ok())
         .map(|r| r.status().is_success())
         .unwrap_or(false)
 }
 
-fn wait_until_healthy(timeout: Duration) -> bool {
+fn health_ok() -> bool {
+    http_get_ok(HEALTH_URL)
+}
+
+/// True when the daemon exposes the features this desktop build needs.
+fn version_ok() -> bool {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let Ok(resp) = client.get(VERSION_URL).send() else {
+        return false;
+    };
+    if !resp.status().is_success() {
+        return false;
+    }
+    let Ok(body) = resp.json::<VersionPayload>() else {
+        return false;
+    };
+    body.features
+        .unwrap_or_default()
+        .iter()
+        .any(|f| f == "catalog")
+}
+
+fn daemon_ready() -> bool {
+    health_ok() && version_ok()
+}
+
+fn wait_until_ready(timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
+    let mut foreign_health_since: Option<Instant> = None;
     while Instant::now() < deadline {
-        if health_ok() {
+        if daemon_ready() {
             return true;
         }
-        thread::sleep(Duration::from_millis(250));
+        // Old uv-tool serve answers /health but not /version — don't wait 60s.
+        if health_ok() && !version_ok() {
+            let since = foreign_health_since.get_or_insert_with(Instant::now);
+            if since.elapsed() > Duration::from_secs(3) {
+                return false;
+            }
+        } else {
+            foreign_health_since = None;
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    false
+}
+
+fn wait_until_unhealthy(timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if !health_ok() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(200));
     }
     false
 }
@@ -59,20 +146,182 @@ fn default_log_path() -> PathBuf {
         .join("serve.log")
 }
 
-fn resolve_sidecar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    // Prefer bundled resources (packaged app).
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let bundled = resource_dir.join("navbe").join(if cfg!(windows) {
-            "navbe.exe"
-        } else {
-            "navbe"
-        });
-        if bundled.exists() {
-            return Ok(bundled);
+fn navbe_home() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".navbe")
+}
+
+fn lan_remote_config_path() -> PathBuf {
+    navbe_home().join(LAN_REMOTE_FILE)
+}
+
+fn lan_token_path() -> PathBuf {
+    navbe_home().join(LAN_TOKEN_FILE)
+}
+
+fn read_lan_remote_config() -> LanRemoteConfig {
+    let path = lan_remote_config_path();
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return LanRemoteConfig::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn write_lan_remote_config(cfg: &LanRemoteConfig) -> Result<(), String> {
+    let home = navbe_home();
+    std::fs::create_dir_all(&home).map_err(|e| format!("mkdir {}: {e}", home.display()))?;
+    let path = lan_remote_config_path();
+    let raw = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
+    std::fs::write(&path, raw + "\n").map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+fn read_lan_token() -> Option<String> {
+    let Ok(raw) = std::fs::read_to_string(lan_token_path()) else {
+        return None;
+    };
+    let token = raw.trim().to_string();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token)
+    }
+}
+
+fn write_lan_token(token: &str) -> Result<(), String> {
+    let home = navbe_home();
+    std::fs::create_dir_all(&home).map_err(|e| format!("mkdir {}: {e}", home.display()))?;
+    let path = lan_token_path();
+    std::fs::write(&path, format!("{}\n", token.trim()))
+        .map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+fn clear_lan_token_file() {
+    let _ = std::fs::remove_file(lan_token_path());
+}
+
+fn generate_lan_token() -> String {
+    let mut buf = [0u8; 24];
+    if getrandom::fill(&mut buf).is_err() {
+        // Fallback should be rare; still produce something unique enough to type.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        return format!("navbe{nanos:x}");
+    }
+    // URL-safe base64 without padding (pairing paste / QR).
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity(32);
+    let mut i = 0;
+    while i + 2 < buf.len() {
+        let n = ((buf[i] as u32) << 16) | ((buf[i + 1] as u32) << 8) | (buf[i + 2] as u32);
+        out.push(TABLE[((n >> 18) & 63) as usize] as char);
+        out.push(TABLE[((n >> 12) & 63) as usize] as char);
+        out.push(TABLE[((n >> 6) & 63) as usize] as char);
+        out.push(TABLE[(n & 63) as usize] as char);
+        i += 3;
+    }
+    out
+}
+
+/// Best-effort IPv4 addresses other hosts on the LAN can use.
+fn lan_ipv4_addrs() -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                let ip = addr.ip();
+                if let std::net::IpAddr::V4(v4) = ip {
+                    if !v4.is_loopback() {
+                        out.push(v4.to_string());
+                    }
+                }
+            }
         }
     }
+    #[cfg(windows)]
+    {
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | \
+                 Where-Object { $_.IPAddress -notlike '127.*' -and $_.PrefixOrigin -ne 'WellKnown' } | \
+                 Select-Object -ExpandProperty IPAddress",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                for line in String::from_utf8_lossy(&output.stdout).lines() {
+                    let ip = line.trim();
+                    if !ip.is_empty() && !out.iter().any(|x| x == ip) {
+                        out.push(ip.to_string());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
 
-    // Dev fallback: use `navbe` / `uv run navbe` from PATH in a checkout.
+fn lan_base_urls() -> Vec<String> {
+    lan_ipv4_addrs()
+        .into_iter()
+        .map(|ip| format!("http://{ip}:{LISTEN_PORT}"))
+        .collect()
+}
+
+fn build_lan_remote_status() -> LanRemoteStatus {
+    let cfg = read_lan_remote_config();
+    let token = if cfg.enabled {
+        read_lan_token()
+    } else {
+        None
+    };
+    let urls = if cfg.enabled {
+        lan_base_urls()
+    } else {
+        Vec::new()
+    };
+    let qr_payload = match (token.as_ref(), urls.first()) {
+        (Some(t), Some(url)) => Some(
+            serde_json::json!({ "baseUrl": url, "token": t }).to_string(),
+        ),
+        _ => None,
+    };
+    LanRemoteStatus {
+        enabled: cfg.enabled,
+        token,
+        urls,
+        qr_payload,
+    }
+}
+
+fn bundled_sidecar_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let resource_dir = app.path().resource_dir().ok()?;
+    let bundled = resource_dir.join("navbe").join(if cfg!(windows) {
+        "navbe.exe"
+    } else {
+        "navbe"
+    });
+    if bundled.exists() {
+        Some(bundled)
+    } else {
+        None
+    }
+}
+
+/// Packaged app when the installer-bundled sidecar is present.
+fn is_packaged(app: &tauri::AppHandle) -> bool {
+    bundled_sidecar_path(app).is_some()
+}
+
+fn resolve_sidecar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(bundled) = bundled_sidecar_path(app) {
+        return Ok(bundled);
+    }
+
     if let Ok(path) = which_navbe() {
         return Ok(path);
     }
@@ -85,7 +334,6 @@ fn resolve_sidecar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn which_navbe() -> Result<PathBuf, String> {
-    // Try common Windows locations first via PATH lookup.
     let candidates = if cfg!(windows) {
         vec!["navbe.exe", "navbe.cmd", "navbe"]
     } else {
@@ -110,7 +358,143 @@ fn which_navbe() -> Result<PathBuf, String> {
     Err("navbe not found on PATH".into())
 }
 
+/// PIDs listening on TCP LISTEN for ``127.0.0.1:port`` / ``0.0.0.0:port`` (Windows).
+///
+/// Important: ``uv tool install navbe`` leaves a **python.exe** (not navbe.exe)
+/// as the LISTENING owner — never reclaim by image name alone.
+#[cfg(windows)]
+fn pids_listening_on_port(port: u16) -> Vec<u32> {
+    let mut pids = Vec::new();
+
+    // Prefer Get-NetTCPConnection — reliable OwningProcess for python.exe listeners.
+    if let Ok(output) = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue | \
+                 Select-Object -ExpandProperty OwningProcess"
+            ),
+        ])
+        .output()
+    {
+        if output.status.success() {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    if pid > 0 && !pids.contains(&pid) {
+                        pids.push(pid);
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: netstat (works when Get-NetTCPConnection is unavailable).
+    if let Ok(output) = Command::new("netstat").args(["-ano"]).output() {
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let needle = format!(":{port}");
+            for line in text.lines() {
+                let line = line.trim();
+                if !line.contains("LISTENING") || !line.contains(&needle) {
+                    continue;
+                }
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() < 5 {
+                    continue;
+                }
+                let local = parts[1];
+                if !(local.ends_with(&needle)
+                    || local.eq_ignore_ascii_case(&format!("127.0.0.1:{port}"))
+                    || local.eq_ignore_ascii_case(&format!("0.0.0.0:{port}")))
+                {
+                    continue;
+                }
+                if let Ok(pid) = parts[parts.len() - 1].parse::<u32>() {
+                    if pid > 0 && !pids.contains(&pid) {
+                        pids.push(pid);
+                    }
+                }
+            }
+        }
+    }
+    pids
+}
+
+#[cfg(not(windows))]
+fn pids_listening_on_port(_port: u16) -> Vec<u32> {
+    Vec::new()
+}
+
+fn kill_pid(pid: u32) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string(), "/T"])
+            .output();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
+    }
+}
+
+/// Stop anything on :8000 so the bundled/dev sidecar can bind.
+fn reclaim_port(app: &tauri::AppHandle) {
+    if let Ok(bundled) = resolve_sidecar_path(app) {
+        let _ = Command::new(&bundled).arg("stop").output();
+    }
+    if let Ok(path) = which_navbe() {
+        let _ = Command::new(&path).arg("stop").output();
+    }
+
+    // Kill LISTEN owners first (often python.exe from `uv tool`, not navbe.exe).
+    for _ in 0..3 {
+        let pids = pids_listening_on_port(LISTEN_PORT);
+        if pids.is_empty() {
+            break;
+        }
+        for pid in pids {
+            kill_pid(pid);
+        }
+        thread::sleep(Duration::from_millis(300));
+    }
+
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/F", "/IM", "navbe.exe", "/T"])
+            .output();
+    }
+
+    let _ = wait_until_unhealthy(Duration::from_secs(8));
+}
+
 fn spawn_sidecar(app: &tauri::AppHandle, state: &DaemonState) -> Result<(), String> {
+    if health_ok() {
+        reclaim_port(app);
+        if health_ok() {
+            return Err(format!(
+                "port {LISTEN_PORT} is still busy after reclaim; stop the other \
+                 process (see netstat) or run uninstall stop-all"
+            ));
+        }
+    }
+
+    let lan = read_lan_remote_config();
+    let bind_host = if lan.enabled {
+        "0.0.0.0"
+    } else {
+        "127.0.0.1"
+    };
+    let lan_token = if lan.enabled {
+        let token = read_lan_token().unwrap_or_else(generate_lan_token);
+        write_lan_token(&token)?;
+        Some(token)
+    } else {
+        None
+    };
+
     let exe = resolve_sidecar_path(app)?;
     let log_path = default_log_path();
     if let Some(parent) = log_path.parent() {
@@ -126,10 +510,19 @@ fn spawn_sidecar(app: &tauri::AppHandle, state: &DaemonState) -> Result<(), Stri
         .map_err(|e| format!("failed to clone log handle: {e}"))?;
 
     let mut cmd = Command::new(&exe);
-    cmd.args(["serve", "--host", "127.0.0.1", "--port", "8000"])
+    cmd.args(["serve", "--host", bind_host, "--port", "8000"])
         .stdin(Stdio::null())
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(log_err));
+    // Clear inherited token when LAN is off so loopback-only serve stays locked down.
+    cmd.env_remove("NAVBE_LAN_TOKEN");
+    if let Some(token) = lan_token.as_ref() {
+        cmd.env("NAVBE_LAN_TOKEN", token);
+    }
+
+    if let Some(dir) = exe.parent() {
+        cmd.current_dir(dir);
+    }
 
     #[cfg(windows)]
     {
@@ -147,14 +540,25 @@ fn spawn_sidecar(app: &tauri::AppHandle, state: &DaemonState) -> Result<(), Stri
     *state.attached.lock().unwrap() = false;
     *state.log_path.lock().unwrap() = Some(log_path.display().to_string());
 
-    if !wait_until_healthy(Duration::from_secs(30)) {
-        // Best-effort cleanup of a hung sidecar.
+    // Cold start of a ready sidecar is usually ~2–5s; keep a shorter ceiling.
+    if !wait_until_ready(Duration::from_secs(25)) {
         if let Some(mut child) = state.child.lock().unwrap().take() {
             let _ = child.kill();
             let _ = child.wait();
         }
+        // One more reclaim+hint if a foreign /health is still answering.
+        if health_ok() && !version_ok() {
+            reclaim_port(app);
+            return Err(format!(
+                "port {LISTEN_PORT} still has an old Navbe (health OK, no /api/v1/version). \
+                 Closed leftover python/navbe listeners; click Restart engine, or run \
+                 resources\\stop-all.cmd. Log: {}",
+                log_path.display()
+            ));
+        }
         return Err(format!(
-            "navbe serve did not become healthy at {HEALTH_URL}; see {}",
+            "navbe serve did not become ready (need /health + /api/v1/version \
+             features=[catalog]); see {}",
             log_path.display()
         ));
     }
@@ -162,12 +566,49 @@ fn spawn_sidecar(app: &tauri::AppHandle, state: &DaemonState) -> Result<(), Stri
 }
 
 fn ensure_daemon(app: &tauri::AppHandle, state: &DaemonState) {
-    if health_ok() {
+    let packaged = is_packaged(app);
+    let lan_enabled = read_lan_remote_config().enabled;
+
+    // LAN remote needs 0.0.0.0 + pairing token — never attach to a foreign localhost serve.
+    if lan_enabled {
+        if health_ok() {
+            reclaim_port(app);
+        }
+        match spawn_sidecar(app, state) {
+            Ok(()) => {
+                *state.error.lock().unwrap() = None;
+            }
+            Err(err) => {
+                *state.error.lock().unwrap() = Some(err);
+            }
+        }
+        *state.booting.lock().unwrap() = false;
+        return;
+    }
+
+    // Packaged desktop always owns the engine — never attach to a random CLI.
+    if !packaged && daemon_ready() {
         *state.attached.lock().unwrap() = true;
         *state.error.lock().unwrap() = None;
         *state.log_path.lock().unwrap() = Some(default_log_path().display().to_string());
+        *state.booting.lock().unwrap() = false;
         return;
     }
+
+    if packaged && daemon_ready() {
+        // Fast relaunch: leftover owned engine — still "local", not a foreign attach.
+        *state.attached.lock().unwrap() = false;
+        *state.error.lock().unwrap() = None;
+        *state.log_path.lock().unwrap() = Some(default_log_path().display().to_string());
+        *state.booting.lock().unwrap() = false;
+        return;
+    }
+
+    // Stale/foreign or nothing listening → reclaim (if needed) and spawn ours.
+    if health_ok() {
+        reclaim_port(app);
+    }
+
     match spawn_sidecar(app, state) {
         Ok(()) => {
             *state.error.lock().unwrap() = None;
@@ -176,20 +617,126 @@ fn ensure_daemon(app: &tauri::AppHandle, state: &DaemonState) {
             *state.error.lock().unwrap() = Some(err);
         }
     }
+    *state.booting.lock().unwrap() = false;
 }
 
 #[tauri::command]
 fn daemon_status(state: State<'_, DaemonState>) -> DaemonStatus {
     let attached = *state.attached.lock().unwrap();
-    let running = health_ok();
+    let booting = *state.booting.lock().unwrap();
+    let running = daemon_ready();
+    let lan = build_lan_remote_status();
     DaemonStatus {
         running,
         attached,
+        booting,
         base_url: BASE_URL.into(),
         mcp_url: MCP_URL.into(),
         log_path: state.log_path.lock().unwrap().clone(),
         error: state.error.lock().unwrap().clone(),
+        lan_enabled: lan.enabled,
+        lan_urls: lan.urls,
+        lan_token: lan.token,
     }
+}
+
+/// Enable or disable LAN remote (rebinds daemon host + rotates/clears pair token).
+#[tauri::command]
+fn lan_remote_set(
+    app: tauri::AppHandle,
+    state: State<'_, DaemonState>,
+    enabled: bool,
+) -> Result<LanRemoteStatus, String> {
+    if enabled {
+        let token = generate_lan_token();
+        write_lan_token(&token)?;
+        write_lan_remote_config(&LanRemoteConfig { enabled: true })?;
+    } else {
+        write_lan_remote_config(&LanRemoteConfig { enabled: false })?;
+        clear_lan_token_file();
+    }
+
+    *state.booting.lock().unwrap() = true;
+    *state.error.lock().unwrap() = None;
+    if let Some(mut child) = state.child.lock().unwrap().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    reclaim_port(&app);
+    match spawn_sidecar(&app, &state) {
+        Ok(()) => {
+            *state.error.lock().unwrap() = None;
+        }
+        Err(err) => {
+            *state.error.lock().unwrap() = Some(err.clone());
+            *state.booting.lock().unwrap() = false;
+            return Err(err);
+        }
+    }
+    *state.booting.lock().unwrap() = false;
+    Ok(build_lan_remote_status())
+}
+
+#[tauri::command]
+fn lan_remote_status() -> LanRemoteStatus {
+    build_lan_remote_status()
+}
+
+/// Force reclaim of :8000 and (re)start the owned sidecar. UI "Restart engine".
+#[tauri::command]
+fn daemon_restart(app: tauri::AppHandle, state: State<'_, DaemonState>) -> DaemonStatus {
+    *state.booting.lock().unwrap() = true;
+    *state.error.lock().unwrap() = None;
+    // Drop our previous child handle without requiring it to be the listener.
+    if let Some(mut child) = state.child.lock().unwrap().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    reclaim_port(&app);
+    match spawn_sidecar(&app, &state) {
+        Ok(()) => {
+            *state.error.lock().unwrap() = None;
+        }
+        Err(err) => {
+            *state.error.lock().unwrap() = Some(err);
+        }
+    }
+    *state.booting.lock().unwrap() = false;
+    daemon_status(state)
+}
+
+/// Proxy REST to the local daemon from Rust so the webview never hits CORS.
+#[tauri::command]
+fn api_request(method: String, path: String, body: Option<String>) -> Result<ApiProxyResponse, String> {
+    let path = path.trim();
+    if !path.starts_with('/') {
+        return Err("path must start with /".into());
+    }
+    let url = format!("{BASE_URL}{path}");
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+
+    let mut builder = match method.to_uppercase().as_str() {
+        "GET" => client.get(&url),
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "DELETE" => client.delete(&url),
+        "PATCH" => client.patch(&url),
+        other => return Err(format!("unsupported method {other}")),
+    };
+
+    if let Some(payload) = body {
+        builder = builder
+            .header("Content-Type", "application/json")
+            .body(payload);
+    }
+
+    let response = builder.send().map_err(|e| format!("request failed: {e}"))?;
+    let status = response.status().as_u16();
+    let body = response.text().map_err(|e| format!("read body: {e}"))?;
+    Ok(ApiProxyResponse { status, body })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -201,6 +748,7 @@ pub fn run() {
             attached: Mutex::new(false),
             error: Mutex::new(None),
             log_path: Mutex::new(None),
+            booting: Mutex::new(true),
         })
         .setup(|app| {
             // Keep setup non-blocking: reqwest::blocking on the UI thread can
@@ -215,21 +763,18 @@ pub fn run() {
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                let state = window.state::<DaemonState>();
-                let attached = *state.attached.lock().unwrap();
-                if attached {
-                    return;
-                }
-                let mut child_slot = state.child.lock().unwrap();
-                if let Some(mut child) = child_slot.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-            }
+        .on_window_event(|_window, event| {
+            // Keep the daemon running after the window closes (faster relaunch).
+            // Uninstall hooks stop navbe.exe via resources/stop-all.cmd.
+            if let tauri::WindowEvent::Destroyed = event {}
         })
-        .invoke_handler(tauri::generate_handler![daemon_status])
+        .invoke_handler(tauri::generate_handler![
+            daemon_status,
+            daemon_restart,
+            lan_remote_set,
+            lan_remote_status,
+            api_request
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Navbe Desktop");
 }

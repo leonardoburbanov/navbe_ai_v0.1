@@ -51,13 +51,18 @@ export interface ValidationResult {
 
 export interface StepCatalogEntry {
   step_type: string;
+  title?: string;
+  description?: string;
   config_schema: JsonSchema;
 }
 
 export interface ConnectorCatalogEntry {
   connector_type: string;
+  title?: string;
+  description?: string;
   config_schema: JsonSchema;
   actions: string[];
+  required_secrets?: string[];
 }
 
 export interface CredentialItem {
@@ -112,8 +117,59 @@ export interface ScheduleSpec {
 export interface DaemonStatus {
   running: boolean;
   attached: boolean;
+  booting: boolean;
   base_url: string;
   mcp_url: string;
   log_path: string | null;
   error: string | null;
+  lan_enabled?: boolean;
+  lan_urls?: string[];
+  lan_token?: string | null;
+}
+
+export interface LanRemoteStatus {
+  enabled: boolean;
+  token: string | null;
+  urls: string[];
+  qr_payload: string | null;
+}
+
+export interface SyncStatus {
+  configured: boolean;
+  initialized: boolean;
+  remote_url: string;
+  branch: string | null;
+  dirty: boolean;
+  flows_subdir: string;
+  default_branch: string;
+  local_flow_count: number;
+  remote_flow_count: number;
+  asset_counts?: Record<string, Record<string, number>>;
+  github_logged_in: boolean;
+  github_login: string | null;
+}
+
+export interface GithubAuthStatus {
+  logged_in: boolean;
+  login?: string | null;
+  [key: string]: unknown;
+}
+
+export interface GithubRepoItem {
+  full_name: string;
+  owner: string;
+  name: string;
+  private: boolean;
+  html_url?: string;
+  clone_url?: string;
+  default_branch?: string;
+}
+
+export interface SyncResult {
+  branch: string;
+  commit_sha?: string | null;
+  flows_added?: string[];
+  flows_updated?: string[];
+  flows_removed?: string[];
+  message?: string;
 }

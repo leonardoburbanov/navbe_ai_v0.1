@@ -14,6 +14,7 @@ ALLOWED_CALL_NAMES = {
     "get",
     "list",
     "update",
+    "delete",
     "validate",
     "start",
     "status",

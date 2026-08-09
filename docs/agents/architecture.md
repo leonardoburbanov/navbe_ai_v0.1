@@ -7,7 +7,11 @@ Code is the source of truth. This page matches what exists after EPIC 0 bootstra
 Enforced by [`.importlinter`](../../.importlinter):
 
 ```
-navbe.mcp_app | navbe.api   # outer: thin handlers
+navbe.cli                   # ops console (starts serve)
+        ↓
+navbe.main                  # composition root (FastAPI + MCP mount)
+        ↓
+navbe.mcp_app | navbe.api   # thin handlers
         ↓
 navbe.domains               # use-cases (steps…catalog)
         ↓

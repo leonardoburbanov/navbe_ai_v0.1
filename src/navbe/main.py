@@ -12,6 +12,7 @@ from navbe.api.v1.routes import runs as runs_routes
 from navbe.api.v1.routes import schedules as schedules_routes
 from navbe.api.v1.routes import secrets as secrets_routes
 from navbe.api.v1.routes import sync as sync_routes
+from navbe.core.lan_auth import LanAuthMiddleware, load_lan_token
 from navbe.dependencies import (
     get_catalog_service,
     get_db_engine,
@@ -23,6 +24,7 @@ from navbe.dependencies import (
     get_secrets_service,
     get_sync_service,
 )
+from navbe.domains.flows.defaults import ensure_default_flows
 from navbe.domains.flows.repository import metadata as flows_metadata
 from navbe.domains.schedules.repository import metadata as schedules_metadata
 from navbe.mcp_app.server import create_mcp_server
@@ -49,6 +51,8 @@ def create_app() -> FastAPI:
             async with engine.begin() as conn:
                 await conn.run_sync(flows_metadata.create_all)
                 await conn.run_sync(schedules_metadata.create_all)
+            # Fresh installs: seed starter + Langfuse base flows (idempotent).
+            await ensure_default_flows(get_flow_service())
             scheduler = get_scheduler_loop()
             scheduler.start()
             try:
@@ -57,16 +61,22 @@ def create_app() -> FastAPI:
                 await scheduler.stop()
 
     app = FastAPI(title="Navbe", version="0.1.0", lifespan=lifespan)
-    # Desktop webview origins only (Tauri prod + Vite/Tauri dev).
+    # Non-loopback clients need Bearer NAVBE_LAN_TOKEN / ~/.navbe/lan_token.
+    app.add_middleware(LanAuthMiddleware)
+
+    # Desktop webview origins. When LAN pairing is on, also allow Expo web/dev
+    # (security is the Bearer token, not browser origin).
+    desktop_origins = [
+        "tauri://localhost",
+        "http://localhost:1420",
+        "https://tauri.localhost",
+        "http://tauri.localhost",
+    ]
+    lan_enabled = load_lan_token() is not None
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "tauri://localhost",
-            "http://localhost:1420",
-            "https://tauri.localhost",
-            "http://tauri.localhost",
-        ],
-        allow_credentials=True,
+        allow_origins=["*"] if lan_enabled else desktop_origins,
+        allow_credentials=not lan_enabled,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -75,6 +85,17 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         """Liveness probe for humans and load balancers."""
         return {"status": "ok"}
+
+    @app.get("/api/v1/version")
+    async def version() -> dict[str, object]:
+        """Desktop/engine readiness: version + feature flags."""
+        from navbe import __version__
+
+        return {
+            "name": "navbe",
+            "version": __version__,
+            "features": ["catalog", "defaults"],
+        }
 
     app.include_router(
         catalog_routes.router, prefix="/api/v1/catalog", tags=["catalog"]

@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm run ensure-sidecar && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -32,10 +32,17 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["resources/navbe/"]
+    "resources": ["resources/navbe/", "resources/stop-all.cmd"],
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/hooks.nsh"
+      },
+      "wix": {
+        "fragmentPaths": ["./windows/stop-on-uninstall.wxs"]
+      }
+    }
   },
   "plugins": {}
 }
