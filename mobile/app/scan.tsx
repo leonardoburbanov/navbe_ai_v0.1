@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { probeConnection } from '@/src/api/client';
 import { useConnection } from '@/src/ConnectionContext';
+import { useThemeColors } from '@/src/useThemeColors';
 
 interface PairPayload {
   baseUrl?: string;
@@ -14,6 +15,7 @@ interface PairPayload {
 /** Scan desktop LAN pairing QR (`{"baseUrl","token"}`). */
 export default function ScanScreen() {
   const router = useRouter();
+  const c = useThemeColors();
   const { connect } = useConnection();
   const [permission, requestPermission] = useCameraPermissions();
   const [error, setError] = useState<string | null>(null);
@@ -40,22 +42,26 @@ export default function ScanScreen() {
   }
 
   if (!permission) {
-    return <View style={styles.center} />;
+    return <View style={[styles.center, { backgroundColor: c.background }]} />;
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.lead}>Camera access is needed to scan the desktop QR.</Text>
-        <Pressable style={styles.btn} onPress={() => void requestPermission()}>
-          <Text style={styles.btnText}>Allow camera</Text>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
+        <Text style={[styles.lead, { color: c.textMuted }]}>
+          Camera access is needed to scan the desktop QR.
+        </Text>
+        <Pressable
+          style={[styles.btn, { backgroundColor: c.primary }]}
+          onPress={() => void requestPermission()}>
+          <Text style={[styles.btnText, { color: c.primaryText }]}>Allow camera</Text>
         </Pressable>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: c.background }]}>
       <CameraView
         style={styles.camera}
         barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
@@ -67,7 +73,9 @@ export default function ScanScreen() {
               }
         }
       />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Text style={[styles.error, { backgroundColor: c.danger }]}>{error}</Text>
+      ) : null}
       {busy ? <Text style={styles.hint}>Connecting…</Text> : null}
     </View>
   );
@@ -77,16 +85,15 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   camera: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
-  lead: { textAlign: 'center', opacity: 0.8 },
-  btn: { backgroundColor: '#1a1a1a', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 },
-  btnText: { color: '#fff', fontWeight: '600' },
+  lead: { textAlign: 'center' },
+  btn: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 },
+  btnText: { fontWeight: '600' },
   error: {
     position: 'absolute',
     bottom: 40,
     left: 20,
     right: 20,
     color: '#fff',
-    backgroundColor: '#b00020',
     padding: 12,
     borderRadius: 8,
     overflow: 'hidden',

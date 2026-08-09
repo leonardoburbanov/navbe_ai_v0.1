@@ -14,10 +14,12 @@ import {
 import { api } from '@/src/api/client';
 import type { ScheduleMeta, ScheduleSpec } from '@/src/api/types';
 import { useConnection } from '@/src/ConnectionContext';
+import { useThemeColors } from '@/src/useThemeColors';
 
 /** List / create / edit / enable / disable schedules. */
 export default function SchedulesScreen() {
   const { connected } = useConnection();
+  const c = useThemeColors();
   const qc = useQueryClient();
   const [editor, setEditor] = useState<ScheduleSpec | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,16 +62,16 @@ export default function SchedulesScreen() {
 
   if (!connected) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.muted}>Connect first (Connect tab).</Text>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
+        <Text style={{ color: c.textMuted }}>Connect first (Connect tab).</Text>
       </View>
     );
   }
 
   if (schedules.isLoading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator />
+      <View style={[styles.center, { backgroundColor: c.background }]}>
+        <ActivityIndicator color={c.tint} />
       </View>
     );
   }
@@ -78,11 +80,11 @@ export default function SchedulesScreen() {
   const flowIds = (flows.data ?? []).map((f) => f.flow_id);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: c.background }]}>
       <View style={styles.header}>
-        <Text style={styles.heading}>Schedules</Text>
+        <Text style={[styles.heading, { color: c.text }]}>Schedules</Text>
         <Pressable
-          style={styles.btn}
+          style={[styles.btn, { backgroundColor: c.primary }]}
           onPress={() =>
             setEditor({
               schedule_id: `sched-${Date.now().toString(36)}`,
@@ -92,34 +94,44 @@ export default function SchedulesScreen() {
               name: '',
             })
           }>
-          <Text style={styles.btnText}>New</Text>
+          <Text style={[styles.btnText, { color: c.primaryText }]}>New</Text>
         </Pressable>
       </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Text style={[styles.error, { color: c.danger }]}>{error}</Text>
+      ) : null}
       <FlatList
         data={list}
         keyExtractor={(item) => item.schedule_id}
         contentContainerStyle={styles.list}
-        ListEmptyComponent={<Text style={styles.muted}>No schedules yet.</Text>}
+        ListEmptyComponent={
+          <Text style={{ color: c.textMuted }}>No schedules yet.</Text>
+        }
         renderItem={({ item }: { item: ScheduleMeta }) => (
-          <View style={styles.card}>
-            <Text style={styles.title}>{item.name || item.schedule_id}</Text>
-            <Text style={styles.sub}>
+          <View style={[styles.card, { borderColor: c.border, backgroundColor: c.card }]}>
+            <Text style={[styles.title, { color: c.text }]}>
+              {item.name || item.schedule_id}
+            </Text>
+            <Text style={[styles.sub, { color: c.textMuted }]}>
               {item.flow_id} · {item.when} · {item.enabled ? 'on' : 'off'}
             </Text>
             {item.next_run_at ? (
-              <Text style={styles.sub}>Next: {new Date(item.next_run_at).toLocaleString()}</Text>
+              <Text style={[styles.sub, { color: c.textMuted }]}>
+                Next: {new Date(item.next_run_at).toLocaleString()}
+              </Text>
             ) : null}
             <View style={styles.row}>
               <Pressable
-                style={styles.ghost}
+                style={[styles.ghost, { borderColor: c.border }]}
                 onPress={() =>
                   toggle.mutate({ id: item.schedule_id, enabled: item.enabled })
                 }>
-                <Text style={styles.ghostText}>{item.enabled ? 'Pause' : 'Enable'}</Text>
+                <Text style={[styles.ghostText, { color: c.text }]}>
+                  {item.enabled ? 'Pause' : 'Enable'}
+                </Text>
               </Pressable>
               <Pressable
-                style={styles.ghost}
+                style={[styles.ghost, { borderColor: c.border }]}
                 onPress={() =>
                   setEditor({
                     schedule_id: item.schedule_id,
@@ -129,7 +141,7 @@ export default function SchedulesScreen() {
                     name: item.name ?? '',
                   })
                 }>
-                <Text style={styles.ghostText}>Edit</Text>
+                <Text style={[styles.ghostText, { color: c.text }]}>Edit</Text>
               </Pressable>
             </View>
           </View>
@@ -137,48 +149,68 @@ export default function SchedulesScreen() {
       />
 
       <Modal visible={editor != null} animationType="slide" transparent>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modal}>
-            <Text style={styles.heading}>{editor ? 'Schedule' : ''}</Text>
+        <View style={[styles.modalBackdrop, { backgroundColor: c.modalBackdrop }]}>
+          <View style={[styles.modal, { backgroundColor: c.modal }]}>
+            <Text style={[styles.heading, { color: c.text }]}>Schedule</Text>
             {editor && (
               <>
-                <Text style={styles.label}>ID</Text>
+                <Text style={[styles.label, { color: c.text }]}>ID</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
+                  ]}
                   value={editor.schedule_id}
                   onChangeText={(schedule_id) => setEditor({ ...editor, schedule_id })}
                   autoCapitalize="none"
+                  placeholderTextColor={c.textMuted}
                 />
-                <Text style={styles.label}>Flow ID</Text>
+                <Text style={[styles.label, { color: c.text }]}>Flow ID</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
+                  ]}
                   value={editor.flow_id}
                   onChangeText={(flow_id) => setEditor({ ...editor, flow_id })}
                   autoCapitalize="none"
                   placeholder={flowIds.join(', ') || 'flow_id'}
+                  placeholderTextColor={c.textMuted}
                 />
-                <Text style={styles.label}>When (+30s / +1h / cron)</Text>
+                <Text style={[styles.label, { color: c.text }]}>When (+30s / +1h / cron)</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
+                  ]}
                   value={editor.when}
                   onChangeText={(when) => setEditor({ ...editor, when })}
                   autoCapitalize="none"
+                  placeholderTextColor={c.textMuted}
                 />
-                <Text style={styles.label}>Name</Text>
+                <Text style={[styles.label, { color: c.text }]}>Name</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
+                  ]}
                   value={editor.name ?? ''}
                   onChangeText={(name) => setEditor({ ...editor, name })}
+                  placeholderTextColor={c.textMuted}
                 />
                 <View style={styles.row}>
                   <Pressable
-                    style={styles.btn}
+                    style={[styles.btn, { backgroundColor: c.primary }]}
                     disabled={save.isPending}
                     onPress={() => save.mutate(editor)}>
-                    <Text style={styles.btnText}>{save.isPending ? 'Saving…' : 'Save'}</Text>
+                    <Text style={[styles.btnText, { color: c.primaryText }]}>
+                      {save.isPending ? 'Saving…' : 'Save'}
+                    </Text>
                   </Pressable>
-                  <Pressable style={styles.ghost} onPress={() => setEditor(null)}>
-                    <Text style={styles.ghostText}>Cancel</Text>
+                  <Pressable
+                    style={[styles.ghost, { borderColor: c.border }]}
+                    onPress={() => setEditor(null)}>
+                    <Text style={[styles.ghostText, { color: c.text }]}>Cancel</Text>
                   </Pressable>
                 </View>
               </>
@@ -203,35 +235,35 @@ const styles = StyleSheet.create({
   heading: { fontSize: 20, fontWeight: '700' },
   list: { padding: 16 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  muted: { opacity: 0.6 },
-  error: { color: '#b00020', paddingHorizontal: 16 },
+  error: { paddingHorizontal: 16 },
   card: {
     borderWidth: 1,
-    borderColor: '#ddd',
     borderRadius: 12,
     padding: 14,
     marginBottom: 10,
     gap: 4,
   },
   title: { fontSize: 16, fontWeight: '700' },
-  sub: { fontSize: 12, opacity: 0.65 },
+  sub: { fontSize: 12 },
   row: { flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap' },
   btn: {
-    backgroundColor: '#1a1a1a',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 8,
   },
-  btnText: { color: '#fff', fontWeight: '600' },
-  ghost: { borderWidth: 1, borderColor: '#ccc', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  btnText: { fontWeight: '600' },
+  ghost: {
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
   ghostText: { fontWeight: '600' },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'flex-end',
   },
   modal: {
-    backgroundColor: '#fff',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
@@ -240,7 +272,6 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, fontWeight: '600', marginTop: 8 },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
