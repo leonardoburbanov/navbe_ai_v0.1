@@ -31,6 +31,8 @@ export function saveConnection(settings: ConnectionSettings): void {
   const normalized: ConnectionSettings = {
     baseUrl: settings.baseUrl.replace(/\/+$/, ""),
     token: settings.token.trim(),
+    mode: settings.mode,
+    relayUrl: settings.relayUrl?.replace(/\/+$/, ""),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   setConnection(normalized);

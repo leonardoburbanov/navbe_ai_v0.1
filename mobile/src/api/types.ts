@@ -86,4 +86,6 @@ export interface VersionInfo {
 export interface ConnectionSettings {
   baseUrl: string;
   token: string;
+  mode?: "lan" | "cloud";
+  relayUrl?: string;
 }

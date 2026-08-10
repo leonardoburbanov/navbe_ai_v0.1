@@ -60,6 +60,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setSettings({
       baseUrl: next.baseUrl.replace(/\/+$/, ""),
       token: next.token.trim(),
+      mode: next.mode,
+      relayUrl: next.relayUrl?.replace(/\/+$/, ""),
     });
     await queryClient.invalidateQueries();
   }, []);

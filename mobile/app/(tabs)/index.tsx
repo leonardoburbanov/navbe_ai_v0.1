@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,17 +15,21 @@ import {
 import { MonoText } from '@/components/StyledText';
 import BrandMark from '@/src/components/BrandMark';
 import { Btn, Card, Screen } from '@/src/components/ui';
-import { probeConnection } from '@/src/api/client';
+import { probeConnection, resolveCloudConnection } from '@/src/api/client';
 import { useConnection } from '@/src/ConnectionContext';
 import { useThemeColors } from '@/src/useThemeColors';
+
+const DEFAULT_RELAY = 'http://127.0.0.1:8443';
 
 /** Pair with the desktop daemon — clean brand-first home. */
 export default function ConnectScreen() {
   const router = useRouter();
   const c = useThemeColors();
   const { ready, connected, settings, connect, disconnect } = useConnection();
+  const [mode, setMode] = useState<'lan' | 'cloud'>('lan');
   const [baseUrl, setBaseUrl] = useState('http://192.168.1.');
   const [token, setToken] = useState('');
+  const [relayUrl, setRelayUrl] = useState(DEFAULT_RELAY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
@@ -35,6 +40,8 @@ export default function ConnectScreen() {
     if (settings) {
       setBaseUrl(settings.baseUrl);
       setToken(settings.token);
+      if (settings.mode) setMode(settings.mode);
+      if (settings.relayUrl) setRelayUrl(settings.relayUrl);
     }
     setHydrated(true);
   }, [ready, settings, hydrated]);
@@ -44,9 +51,17 @@ export default function ConnectScreen() {
     setError(null);
     setOkMsg(null);
     try {
-      const version = await probeConnection({ baseUrl, token });
-      await connect({ baseUrl, token });
-      setOkMsg(`Connected · Navbe ${version.version}`);
+      if (mode === 'cloud') {
+        const resolved = await resolveCloudConnection(relayUrl, token);
+        const version = await probeConnection(resolved);
+        await connect(resolved);
+        setOkMsg(`Cloud · ${version.version}`);
+        setBaseUrl(resolved.baseUrl);
+      } else {
+        const version = await probeConnection({ baseUrl, token, mode: 'lan' });
+        await connect({ baseUrl, token, mode: 'lan' });
+        setOkMsg(`Connected · Navbe ${version.version}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -64,6 +79,11 @@ export default function ConnectScreen() {
       setBusy(false);
     }
   }
+
+  const canConnect =
+    mode === 'cloud'
+      ? Boolean(relayUrl.trim() && token.trim())
+      : Boolean(baseUrl.trim() && token.trim());
 
   if (!ready) {
     return (
@@ -86,7 +106,7 @@ export default function ConnectScreen() {
           <View style={styles.hero}>
             <BrandMark size="lg" showWordmark />
             <Text style={[styles.lead, { color: c.textMuted }]}>
-              Run and monitor local workflows over the same Wi‑Fi as Desktop.
+              Same Wi‑Fi as Desktop, or Navbe Cloud with the same account token.
             </Text>
             <View style={styles.statusRow}>
               <View
@@ -96,18 +116,58 @@ export default function ConnectScreen() {
                 ]}
               />
               <Text style={[styles.statusText, { color: c.textMuted }]}>
-                {connected ? 'Paired with desktop' : 'Not paired'}
+                {connected
+                  ? settings?.mode === 'cloud'
+                    ? 'Connected via cloud'
+                    : 'Paired with desktop'
+                  : 'Not paired'}
               </Text>
             </View>
           </View>
 
           <Card>
             <Text style={[styles.sectionTitle, { color: c.text }]}>
-              {connected ? 'Connection' : 'Pair with desktop'}
+              {connected ? 'Connection' : 'Connect'}
             </Text>
-            <Text style={[styles.sectionBody, { color: c.textMuted }]}>
-              On Desktop: Allow mobile → paste URL & token, or Scan QR.
-            </Text>
+
+            <View style={styles.modeRow}>
+              <Pressable
+                onPress={() => setMode('lan')}
+                style={[
+                  styles.modeBtn,
+                  {
+                    borderColor: c.border,
+                    backgroundColor: mode === 'lan' ? c.signal : c.inputBg,
+                  },
+                ]}>
+                <Text
+                  style={{
+                    color: mode === 'lan' ? '#fff' : c.text,
+                    fontWeight: '700',
+                    fontSize: 14,
+                  }}>
+                  LAN
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setMode('cloud')}
+                style={[
+                  styles.modeBtn,
+                  {
+                    borderColor: c.border,
+                    backgroundColor: mode === 'cloud' ? c.signal : c.inputBg,
+                  },
+                ]}>
+                <Text
+                  style={{
+                    color: mode === 'cloud' ? '#fff' : c.text,
+                    fontWeight: '700',
+                    fontSize: 14,
+                  }}>
+                  Cloud
+                </Text>
+              </Pressable>
+            </View>
 
             {connected && settings ? (
               <View style={[styles.engineRow, { backgroundColor: c.inputBg, borderColor: c.border }]}>
@@ -118,38 +178,58 @@ export default function ConnectScreen() {
               </View>
             ) : null}
 
-            <Text style={[styles.label, { color: c.textMuted }]}>Base URL</Text>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  borderColor: c.border,
-                  backgroundColor: c.inputBg,
-                  color: c.text,
-                },
-              ]}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              placeholder="http://192.168.1.10:8000"
-              placeholderTextColor={c.textMuted}
-              value={baseUrl}
-              onChangeText={setBaseUrl}
-            />
+            {mode === 'lan' ? (
+              <>
+                <Text style={[styles.sectionBody, { color: c.textMuted }]}>
+                  On Desktop: Allow mobile → paste URL & token, or Scan QR.
+                </Text>
+                <Text style={[styles.label, { color: c.textMuted }]}>Base URL</Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
+                  ]}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  placeholder="http://192.168.1.10:8000"
+                  placeholderTextColor={c.textMuted}
+                  value={baseUrl}
+                  onChangeText={setBaseUrl}
+                />
+                <Text style={[styles.label, { color: c.textMuted }]}>Pairing token</Text>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.sectionBody, { color: c.textMuted }]}>
+                  Same account token as Desktop Cloud remote.
+                </Text>
+                <Text style={[styles.label, { color: c.textMuted }]}>Relay URL</Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
+                  ]}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  placeholder={DEFAULT_RELAY}
+                  placeholderTextColor={c.textMuted}
+                  value={relayUrl}
+                  onChangeText={setRelayUrl}
+                />
+                <Text style={[styles.label, { color: c.textMuted }]}>Account token</Text>
+              </>
+            )}
 
-            <Text style={[styles.label, { color: c.textMuted }]}>Pairing token</Text>
             <TextInput
               style={[
                 styles.input,
-                {
-                  borderColor: c.border,
-                  backgroundColor: c.inputBg,
-                  color: c.text,
-                },
+                { borderColor: c.border, backgroundColor: c.inputBg, color: c.text },
               ]}
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder="Token from desktop"
+              placeholder={mode === 'cloud' ? 'nbc_…' : 'Token from desktop'}
               placeholderTextColor={c.textMuted}
               value={token}
               onChangeText={setToken}
@@ -164,16 +244,20 @@ export default function ConnectScreen() {
                 label={connected ? 'Reconnect' : 'Connect'}
                 variant="signal"
                 loading={busy}
-                disabled={!baseUrl.trim() || !token.trim()}
+                disabled={!canConnect}
                 onPress={() => void onConnect()}
                 style={styles.half}
               />
-              <Btn
-                label="Scan QR"
-                variant="ghost"
-                onPress={() => router.push('/scan')}
-                style={styles.half}
-              />
+              {mode === 'lan' ? (
+                <Btn
+                  label="Scan QR"
+                  variant="ghost"
+                  onPress={() => router.push('/scan')}
+                  style={styles.half}
+                />
+              ) : (
+                <View style={styles.half} />
+              )}
             </View>
           </Card>
 
@@ -209,12 +293,21 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4 },
   statusText: { fontSize: 13, fontWeight: '500' },
   sectionTitle: { fontSize: 17, fontWeight: '700', letterSpacing: -0.2 },
-  sectionBody: { fontSize: 13, lineHeight: 18, marginTop: 4, marginBottom: 12 },
+  sectionBody: { fontSize: 13, lineHeight: 18, marginTop: 12, marginBottom: 4 },
+  modeRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  modeBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
   engineRow: {
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    marginTop: 12,
     marginBottom: 8,
     gap: 2,
   },

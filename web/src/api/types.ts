@@ -86,4 +86,7 @@ export interface VersionInfo {
 export interface ConnectionSettings {
   baseUrl: string;
   token: string;
+  /** lan = direct daemon; cloud = relay proxy with account token */
+  mode?: "lan" | "cloud";
+  relayUrl?: string;
 }
