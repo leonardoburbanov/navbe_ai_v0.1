@@ -33,6 +33,8 @@ export async function saveConnection(settings: ConnectionSettings): Promise<void
   const normalized: ConnectionSettings = {
     baseUrl: settings.baseUrl.replace(/\/+$/, ""),
     token: settings.token.trim(),
+    mode: settings.mode,
+    relayUrl: settings.relayUrl?.replace(/\/+$/, ""),
   };
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   setConnection(normalized);

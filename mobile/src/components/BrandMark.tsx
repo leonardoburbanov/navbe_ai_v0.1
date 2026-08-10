@@ -30,7 +30,7 @@ export default function BrandMark({
     <View style={styles.row}>
       <Image
         source={require('../../assets/images/navbe-logo.png')}
-        style={[{ width: dim, height: dim }, style]}
+        style={[{ width: dim, height: dim, tintColor: c.text }, style]}
         resizeMode="contain"
         accessibilityLabel="Navbe"
       />

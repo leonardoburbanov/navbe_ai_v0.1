@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { probeConnection } from "../api/client";
+import { probeConnection, resolveCloudConnection } from "../api/client";
 import BrandMark from "../components/BrandMark";
 import { Btn, Card, Screen } from "../components/ui";
 import { useConnection } from "../ConnectionContext";
+
+const DEFAULT_RELAY = "http://127.0.0.1:8443";
 
 /** Try parse desktop QR JSON payload into URL + token. */
 function tryParsePairingBlob(raw: string): { baseUrl: string; token: string } | null {
@@ -24,8 +26,10 @@ function tryParsePairingBlob(raw: string): { baseUrl: string; token: string } | 
 /** Pair with the desktop daemon — brand-first home. */
 export default function HomePage() {
   const { ready, connected, settings, connect, disconnect } = useConnection();
+  const [mode, setMode] = useState<"lan" | "cloud">("lan");
   const [baseUrl, setBaseUrl] = useState("http://192.168.1.");
   const [token, setToken] = useState("");
+  const [relayUrl, setRelayUrl] = useState(DEFAULT_RELAY);
   const [pairPaste, setPairPaste] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +41,8 @@ export default function HomePage() {
     if (settings) {
       setBaseUrl(settings.baseUrl);
       setToken(settings.token);
+      if (settings.mode) setMode(settings.mode);
+      if (settings.relayUrl) setRelayUrl(settings.relayUrl);
     }
     setHydrated(true);
   }, [ready, settings, hydrated]);
@@ -44,6 +50,7 @@ export default function HomePage() {
   useEffect(() => {
     const parsed = tryParsePairingBlob(pairPaste);
     if (!parsed) return;
+    setMode("lan");
     setBaseUrl(parsed.baseUrl);
     setToken(parsed.token);
     setPairPaste("");
@@ -54,9 +61,17 @@ export default function HomePage() {
     setError(null);
     setOkMsg(null);
     try {
-      const version = await probeConnection({ baseUrl, token });
-      connect({ baseUrl, token });
-      setOkMsg(`Connected · Navbe ${version.version}`);
+      if (mode === "cloud") {
+        const resolved = await resolveCloudConnection(relayUrl, token);
+        const version = await probeConnection(resolved);
+        connect(resolved);
+        setOkMsg(`Cloud · ${version.version}`);
+        setBaseUrl(resolved.baseUrl);
+      } else {
+        const version = await probeConnection({ baseUrl, token, mode: "lan" });
+        connect({ baseUrl, token, mode: "lan" });
+        setOkMsg(`Connected · Navbe ${version.version}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -74,6 +89,11 @@ export default function HomePage() {
       setBusy(false);
     }
   }
+
+  const canConnect =
+    mode === "cloud"
+      ? Boolean(relayUrl.trim() && token.trim())
+      : Boolean(baseUrl.trim() && token.trim());
 
   if (!ready) {
     return (
@@ -93,7 +113,7 @@ export default function HomePage() {
         <div className="flex flex-col gap-2.5">
           <BrandMark size="lg" showWordmark />
           <p className="text-[15px] leading-[22px] text-[var(--ink-muted)]">
-            Run and monitor local workflows over the same Wi‑Fi as Desktop.
+            Connect over the same Wi‑Fi, or via Navbe Cloud with the same account token as Desktop.
           </p>
           <div className="mt-0.5 flex items-center gap-2">
             <span
@@ -103,22 +123,37 @@ export default function HomePage() {
               }}
             />
             <span className="text-[13px] font-medium text-[var(--ink-muted)]">
-              {connected ? "Paired with desktop" : "Not paired"}
+              {connected
+                ? settings?.mode === "cloud"
+                  ? "Connected via cloud"
+                  : "Paired with desktop"
+                : "Not paired"}
             </span>
           </div>
         </div>
 
         <Card>
           <h2 className="text-[17px] font-bold tracking-tight text-[var(--ink)]">
-            {connected ? "Connection" : "Pair with desktop"}
+            {connected ? "Connection" : "Connect"}
           </h2>
-          <p className="mb-3 mt-1 text-[13px] leading-[18px] text-[var(--ink-muted)]">
-            On Desktop: Allow mobile → paste URL &amp; token, or paste the QR JSON
-            payload below.
-          </p>
+
+          <div className="mt-3 flex gap-2">
+            <Btn
+              className="flex-1"
+              label="LAN"
+              variant={mode === "lan" ? "signal" : "ghost"}
+              onClick={() => setMode("lan")}
+            />
+            <Btn
+              className="flex-1"
+              label="Cloud"
+              variant={mode === "cloud" ? "signal" : "ghost"}
+              onClick={() => setMode("cloud")}
+            />
+          </div>
 
           {connected && settings ? (
-            <div className="mb-2 rounded-[10px] border border-[var(--line)] bg-[var(--bg-panel)] px-3 py-2.5">
+            <div className="mb-2 mt-3 rounded-[10px] border border-[var(--line)] bg-[var(--bg-panel)] px-3 py-2.5">
               <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--ink-muted)]">
                 Engine
               </div>
@@ -128,43 +163,73 @@ export default function HomePage() {
             </div>
           ) : null}
 
-          <label className="mt-2.5 block text-[11px] font-bold uppercase tracking-wide text-[var(--ink-muted)]">
-            Paste QR JSON (optional)
-          </label>
-          <input
-            className="mt-1.5 w-full rounded-[10px] border border-[var(--line)] bg-[var(--bg-panel)] px-3 py-3 text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--signal)]"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            placeholder='{"baseUrl":"http://…","token":"…"}'
-            value={pairPaste}
-            onChange={(e) => setPairPaste(e.target.value)}
-          />
+          {mode === "lan" ? (
+            <>
+              <p className="mb-3 mt-3 text-[13px] leading-[18px] text-[var(--ink-muted)]">
+                On Desktop: Allow mobile → paste URL &amp; token, or paste the QR JSON
+                payload below.
+              </p>
+              <label className="mt-2.5 block text-[11px] font-bold uppercase tracking-wide text-[var(--ink-muted)]">
+                Paste QR JSON (optional)
+              </label>
+              <input
+                className="mt-1.5 w-full rounded-[10px] border border-[var(--line)] bg-[var(--bg-panel)] px-3 py-3 text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--signal)]"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder='{"baseUrl":"http://…","token":"…"}'
+                value={pairPaste}
+                onChange={(e) => setPairPaste(e.target.value)}
+              />
+              <label className="mt-2.5 block text-[11px] font-bold uppercase tracking-wide text-[var(--ink-muted)]">
+                Base URL
+              </label>
+              <input
+                className="mt-1.5 w-full rounded-[10px] border border-[var(--line)] bg-[var(--bg-panel)] px-3 py-3 text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--signal)]"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                inputMode="url"
+                placeholder="http://192.168.1.10:8000"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+              />
+              <label className="mt-2.5 block text-[11px] font-bold uppercase tracking-wide text-[var(--ink-muted)]">
+                Pairing token
+              </label>
+            </>
+          ) : (
+            <>
+              <p className="mb-3 mt-3 text-[13px] leading-[18px] text-[var(--ink-muted)]">
+                Paste the same account token as Desktop Cloud remote (
+                <code className="text-xs">navbe-cloud auth register</code>).
+              </p>
+              <label className="mt-2.5 block text-[11px] font-bold uppercase tracking-wide text-[var(--ink-muted)]">
+                Relay URL
+              </label>
+              <input
+                className="mt-1.5 w-full rounded-[10px] border border-[var(--line)] bg-[var(--bg-panel)] px-3 py-3 text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--signal)]"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                inputMode="url"
+                placeholder={DEFAULT_RELAY}
+                value={relayUrl}
+                onChange={(e) => setRelayUrl(e.target.value)}
+              />
+              <label className="mt-2.5 block text-[11px] font-bold uppercase tracking-wide text-[var(--ink-muted)]">
+                Account token
+              </label>
+            </>
+          )}
 
-          <label className="mt-2.5 block text-[11px] font-bold uppercase tracking-wide text-[var(--ink-muted)]">
-            Base URL
-          </label>
-          <input
-            className="mt-1.5 w-full rounded-[10px] border border-[var(--line)] bg-[var(--bg-panel)] px-3 py-3 text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--signal)]"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            inputMode="url"
-            placeholder="http://192.168.1.10:8000"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-          />
-
-          <label className="mt-2.5 block text-[11px] font-bold uppercase tracking-wide text-[var(--ink-muted)]">
-            Pairing token
-          </label>
           <input
             className="mt-1.5 w-full rounded-[10px] border border-[var(--line)] bg-[var(--bg-panel)] px-3 py-3 text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--signal)]"
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
             type={token.length > 8 ? "password" : "text"}
-            placeholder="Token from desktop"
+            placeholder={mode === "cloud" ? "nbc_…" : "Token from desktop"}
             value={token}
             onChange={(e) => setToken(e.target.value)}
           />
@@ -182,7 +247,7 @@ export default function HomePage() {
               label={connected ? "Reconnect" : "Connect"}
               variant="signal"
               loading={busy}
-              disabled={!baseUrl.trim() || !token.trim()}
+              disabled={!canConnect}
               onClick={() => void onConnect()}
             />
           </div>

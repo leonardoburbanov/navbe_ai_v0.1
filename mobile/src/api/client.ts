@@ -1,4 +1,4 @@
-/** Thin REST client for a LAN Navbe daemon (Bearer pairing token). */
+﻿/** Thin REST client for Navbe daemon (LAN) or cloud relay proxy. */
 
 import type {
   ConnectionSettings,
@@ -10,14 +10,22 @@ import type {
   VersionInfo,
 } from "./types";
 
+export interface CloudDevice {
+  device_id: string;
+  label: string;
+  online: boolean;
+}
+
 let connection: ConnectionSettings | null = null;
 
-/** Set the active base URL + pairing token for subsequent requests. */
+/** Set the active base URL + token for subsequent requests. */
 export function setConnection(settings: ConnectionSettings | null): void {
   connection = settings
     ? {
         baseUrl: settings.baseUrl.replace(/\/+$/, ""),
         token: settings.token.trim(),
+        mode: settings.mode,
+        relayUrl: settings.relayUrl?.replace(/\/+$/, ""),
       }
     : null;
 }
@@ -54,7 +62,7 @@ function parseBody<T>(status: number, raw: string): T {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!connection) {
-    throw new Error("Not connected — open Connect and pair with desktop");
+    throw new Error("Not connected â€” open Home and pair with desktop");
   }
   const headers: Record<string, string> = {
     Authorization: `Bearer ${connection.token}`,
@@ -91,6 +99,46 @@ export async function probeConnection(
   return parseBody<VersionInfo>(versionRes.status, raw);
 }
 
+/** List devices for a Navbe Cloud account token. */
+export async function listCloudDevices(
+  relayUrl: string,
+  accountToken: string,
+): Promise<CloudDevice[]> {
+  const base = relayUrl.replace(/\/+$/, "");
+  const response = await fetch(`${base}/v1/devices`, {
+    headers: { Authorization: `Bearer ${accountToken.trim()}` },
+  });
+  const raw = await response.text();
+  return parseBody<CloudDevice[]>(response.status, raw);
+}
+
+/**
+ * Resolve cloud connection: account token â†’ online device proxy base URL.
+ */
+export async function resolveCloudConnection(
+  relayUrl: string,
+  accountToken: string,
+  preferredDeviceId?: string,
+): Promise<ConnectionSettings> {
+  const devices = await listCloudDevices(relayUrl, accountToken);
+  const online = devices.filter((d) => d.online);
+  if (online.length === 0) {
+    throw new Error("No online devices â€” enable Cloud remote on Desktop first");
+  }
+  const chosen =
+    (preferredDeviceId
+      ? online.find((d) => d.device_id === preferredDeviceId)
+      : undefined) ??
+    (online.length === 1 ? online[0] : online[0]);
+  const relay = relayUrl.replace(/\/+$/, "");
+  return {
+    baseUrl: `${relay}/v1/devices/${chosen.device_id}/proxy`,
+    token: accountToken.trim(),
+    mode: "cloud",
+    relayUrl: relay,
+  };
+}
+
 export const api = {
   health: () => request<{ status: string }>("/health"),
   version: () => request<VersionInfo>("/api/v1/version"),
@@ -103,7 +151,8 @@ export const api = {
     const qs = flowId ? `?flow_id=${encodeURIComponent(flowId)}` : "";
     return request<{ runs: RunState[] }>(`/api/v1/runs${qs}`);
   },
-  getRun: (runId: string) => request<RunState>(`/api/v1/runs/${encodeURIComponent(runId)}`),
+  getRun: (runId: string) =>
+    request<RunState>(`/api/v1/runs/${encodeURIComponent(runId)}`),
   startRun: (flowId: string, initialInput?: Record<string, unknown>) =>
     request<RunState>("/api/v1/runs", {
       method: "POST",
@@ -141,3 +190,4 @@ export const api = {
       method: "POST",
     }),
 };
+

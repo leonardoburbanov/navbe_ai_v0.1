@@ -134,6 +134,36 @@ export interface LanRemoteStatus {
   qr_payload: string | null;
 }
 
+export interface CloudRemoteStatus {
+  enabled: boolean;
+  agent_running: boolean;
+  relay_url: string;
+  account_token_set: boolean;
+  device_id: string | null;
+  online: boolean;
+  error: string | null;
+}
+
+export interface McpClientEntryStatus {
+  connected: boolean;
+  path: string | null;
+  available: boolean;
+}
+
+export interface McpClientStatus {
+  mcp_url: string;
+  cursor: McpClientEntryStatus;
+  claude: McpClientEntryStatus;
+  cursor_snippet: string;
+  claude_snippet: string;
+}
+
+export interface McpClientConfigureResult {
+  client: string;
+  path: string;
+  message: string;
+}
+
 export interface SyncStatus {
   configured: boolean;
   initialized: boolean;
