@@ -328,11 +328,10 @@ fn merge_and_write_mcp_config(path: &PathBuf, client: &str) -> Result<(), String
     servers.insert("navbe".into(), mcp_server_entry(client));
     map.insert("mcpServers".into(), serde_json::Value::Object(servers));
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
     }
-    let raw = serde_json::to_string_pretty(&serde_json::Value::Object(map))
-        .map_err(|e| e.to_string())?;
+    let raw =
+        serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
     std::fs::write(path, raw + "\n").map_err(|e| format!("write {}: {e}", path.display()))
 }
 
@@ -413,7 +412,10 @@ fn register_cloud_device(cfg: &CloudConfig) -> Result<(String, String), String> 
         .map_err(|e| format!("http client: {e}"))?;
     let response = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", cfg.account_token.trim()))
+        .header(
+            "Authorization",
+            format!("Bearer {}", cfg.account_token.trim()),
+        )
         .header("Content-Type", "application/json")
         .body(r#"{"label":"Laptop"}"#)
         .send()
@@ -504,7 +506,10 @@ fn probe_device_online(cfg: &CloudConfig) -> bool {
     };
     let Ok(resp) = client
         .get(&url)
-        .header("Authorization", format!("Bearer {}", cfg.account_token.trim()))
+        .header(
+            "Authorization",
+            format!("Bearer {}", cfg.account_token.trim()),
+        )
         .send()
     else {
         return false;
@@ -523,8 +528,7 @@ fn probe_device_online(cfg: &CloudConfig) -> bool {
     let Ok(rows) = serde_json::from_str::<Vec<Row>>(&text) else {
         return false;
     };
-    rows.iter()
-        .any(|r| r.device_id == *device_id && r.online)
+    rows.iter().any(|r| r.device_id == *device_id && r.online)
 }
 
 fn build_cloud_remote_status(state: &DaemonState) -> CloudRemoteStatus {
@@ -685,20 +689,14 @@ fn lan_base_urls() -> Vec<String> {
 
 fn build_lan_remote_status() -> LanRemoteStatus {
     let cfg = read_lan_remote_config();
-    let token = if cfg.enabled {
-        read_lan_token()
-    } else {
-        None
-    };
+    let token = if cfg.enabled { read_lan_token() } else { None };
     let urls = if cfg.enabled {
         lan_base_urls()
     } else {
         Vec::new()
     };
     let qr_payload = match (token.as_ref(), urls.first()) {
-        (Some(t), Some(url)) => Some(
-            serde_json::json!({ "baseUrl": url, "token": t }).to_string(),
-        ),
+        (Some(t), Some(url)) => Some(serde_json::json!({ "baseUrl": url, "token": t }).to_string()),
         _ => None,
     };
     LanRemoteStatus {
@@ -889,9 +887,7 @@ fn kill_pid(pid: u32) {
     {
         let mut cmd = Command::new("taskkill");
         hide_console(&mut cmd);
-        let _ = cmd
-            .args(["/F", "/PID", &pid.to_string(), "/T"])
-            .output();
+        let _ = cmd.args(["/F", "/PID", &pid.to_string(), "/T"]).output();
     }
     #[cfg(not(windows))]
     {
@@ -946,11 +942,7 @@ fn spawn_sidecar(app: &tauri::AppHandle, state: &DaemonState) -> Result<(), Stri
     }
 
     let lan = read_lan_remote_config();
-    let bind_host = if lan.enabled {
-        "0.0.0.0"
-    } else {
-        "127.0.0.1"
-    };
+    let bind_host = if lan.enabled { "0.0.0.0" } else { "127.0.0.1" };
     let lan_token = if lan.enabled {
         let token = read_lan_token().unwrap_or_else(generate_lan_token);
         write_lan_token(&token)?;
@@ -1222,8 +1214,9 @@ fn mcp_client_configure(client: String) -> Result<McpClientConfigureResult, Stri
             })
         }
         "claude" => {
-            let path = claude_desktop_config_path()
-                .ok_or_else(|| "Claude Desktop config path unavailable on this platform".to_string())?;
+            let path = claude_desktop_config_path().ok_or_else(|| {
+                "Claude Desktop config path unavailable on this platform".to_string()
+            })?;
             merge_and_write_mcp_config(&path, "claude")?;
             Ok(McpClientConfigureResult {
                 client: "claude".into(),
@@ -1260,7 +1253,11 @@ fn daemon_restart(app: tauri::AppHandle, state: State<'_, DaemonState>) -> Daemo
 
 /// Proxy REST to the local daemon from Rust so the webview never hits CORS.
 #[tauri::command]
-fn api_request(method: String, path: String, body: Option<String>) -> Result<ApiProxyResponse, String> {
+fn api_request(
+    method: String,
+    path: String,
+    body: Option<String>,
+) -> Result<ApiProxyResponse, String> {
     let path = path.trim();
     if !path.starts_with('/') {
         return Err("path must start with /".into());
@@ -1295,6 +1292,7 @@ fn api_request(method: String, path: String, body: Option<String>) -> Result<Api
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .manage(DaemonState {
             child: Mutex::new(None),
