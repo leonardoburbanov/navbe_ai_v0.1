@@ -24,11 +24,14 @@ uv run pytest
 
 ## Branching and PRs
 
-1. Create a feature branch from `main` (direct pushes to `main` are blocked).
-2. Keep PRs focused — one concern per PR when practical.
-3. Fill in the PR template.
-4. Wait for the **CI** check to pass.
-5. Squash-merge is the default merge style.
+Simplified GitFlow: `develop` is integration; `main` is shipped product.
+
+1. Create a feature branch from `develop` (direct pushes to `develop` and `main` are blocked).
+2. Open the PR against `develop`. Keep PRs focused — one concern per PR when practical.
+3. Fill in the short PR template (why + breaking). CI is the test gate, not the checklist.
+4. Wait for the **CI** check to pass, then squash-merge into `develop`.
+5. To ship: PR `develop` → `main`, then tag `v*` on `main` (see [docs/install.md](docs/install.md)).
+6. Hotfix: branch from `main`, PR into `main`, tag, then merge `main` back into `develop`.
 
 ## Code guidelines
 

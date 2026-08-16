@@ -71,7 +71,7 @@ See [`.env.example`](../../.env.example).
 
 ## CI
 
-[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) on push/PR:
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) on push/PR to `main` and `develop`:
 
 1. `uv sync`
 2. `uv run ruff check .`
@@ -79,11 +79,23 @@ See [`.env.example`](../../.env.example).
 4. `uv run lint-imports`
 5. `uv run pytest --cov-fail-under=0`
 
+## Branching
+
+- `develop` — default branch; daily PRs land here.
+- `main` — shipped product. Merge `develop` → `main` only when cutting a release (or merge a `hotfix/*` PR).
+- Feature PRs target `develop`. End-user install scripts stay on `main`.
+
+GitHub settings (repo admin, not in git): default branch = `develop`; protect `main` and `develop` (no direct pushes, PRs + CI required).
+
 ## Releases
 
-[`.github/workflows/release.yml`](../../.github/workflows/release.yml) on tag `v*`:
+Ship from `main` after it matches the `develop` you want to release:
 
-1. `uv build`
-2. Upload wheel, sdist, `install.sh`, `install.ps1` to the GitHub Release
+1. PR `develop` → `main` and merge.
+2. Tag `v*` on `main` (see [../install.md](../install.md)).
+3. [`.github/workflows/release.yml`](../../.github/workflows/release.yml) builds, uploads wheel/sdist/install scripts, publishes to PyPI.
+4. [`.github/workflows/desktop-release.yml`](../../.github/workflows/desktop-release.yml) attaches Windows installers.
+
+If you tagged a hotfix on `main`, merge `main` back into `develop`.
 
 No automated wiki generation job — agent docs under `docs/agents/` are hand-maintained.

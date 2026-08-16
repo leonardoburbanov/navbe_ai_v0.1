@@ -208,6 +208,7 @@ out of band from this daemon for now.
 - Commit only when the user asks.
 - Do not push unless asked.
 - Keep commits small and focused on why, not a file laundry list.
+- Branch from `develop`. Open PRs against `develop`, never `main`, unless the change is a hotfix for a shipped release.
 
 ---
 

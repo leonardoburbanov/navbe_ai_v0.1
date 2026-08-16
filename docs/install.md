@@ -182,13 +182,18 @@ runs on tag `v*`, uploads wheel/sdist/install scripts, and publishes to PyPI.
 
 ### Cut a release
 
+Merge the `develop` you want to ship into `main` first (release PR). Then tag `main`:
+
 ```bash
-# bump version in pyproject.toml / src/navbe/__init__.py as needed
+# bump version in pyproject.toml / src/navbe/__init__.py as needed (on develop, then merge)
+git checkout main
+git pull
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
 GitHub Actions builds, attaches assets, and publishes to PyPI (Trusted Publisher).
+Desktop installers come from the same tag via [`.github/workflows/desktop-release.yml`](../.github/workflows/desktop-release.yml).
 
 ### Out of scope (today)
 
