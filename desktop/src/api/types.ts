@@ -134,6 +134,10 @@ export interface LanRemoteStatus {
   qr_payload: string | null;
 }
 
+export interface AutostartStatus {
+  enabled: boolean;
+}
+
 export interface CloudRemoteStatus {
   enabled: boolean;
   agent_running: boolean;

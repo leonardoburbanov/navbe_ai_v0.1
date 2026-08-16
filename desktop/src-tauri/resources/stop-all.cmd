@@ -15,4 +15,6 @@ if exist "%USERPROFILE%\.navbe\serve.pid" (
   del /f /q "%USERPROFILE%\.navbe\serve.pid" >nul 2>&1
 )
 
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v Navbe /f >nul 2>&1
+
 exit /b 0
