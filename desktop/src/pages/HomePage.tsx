@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type {
+  AutostartStatus,
   CloudRemoteStatus,
   DaemonStatus,
   LanRemoteStatus,
@@ -36,6 +37,8 @@ export default function HomePage() {
   const [mcpBusy, setMcpBusy] = useState<"cursor" | "claude" | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [mcpHint, setMcpHint] = useState<string | null>(null);
+  const [autostartBusy, setAutostartBusy] = useState(false);
+  const [autostartError, setAutostartError] = useState<string | null>(null);
 
   const daemon = useQuery({
     queryKey: ["daemon-status"],
@@ -79,6 +82,17 @@ export default function HomePage() {
       }
     },
     refetchInterval: cloudBusy ? 1000 : 4000,
+  });
+
+  const autostart = useQuery({
+    queryKey: ["autostart"],
+    queryFn: async () => {
+      try {
+        return await invoke<AutostartStatus>("autostart_status");
+      } catch {
+        return { enabled: true } satisfies AutostartStatus;
+      }
+    },
   });
 
   useEffect(() => {
@@ -178,6 +192,19 @@ export default function HomePage() {
     }
   }
 
+  async function setAutostart(enabled: boolean) {
+    setAutostartBusy(true);
+    setAutostartError(null);
+    try {
+      await invoke<AutostartStatus>("autostart_set", { enabled });
+      await queryClient.invalidateQueries({ queryKey: ["autostart"] });
+    } catch (err) {
+      setAutostartError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAutostartBusy(false);
+    }
+  }
+
   async function configureMcp(client: "cursor" | "claude") {
     setMcpBusy(client);
     setMcpError(null);
@@ -208,6 +235,7 @@ export default function HomePage() {
   }
 
   const cloudEnabled = Boolean(cloud.data?.enabled);
+  const autostartEnabled = autostart.data?.enabled !== false;
 
   return (
     <div className="home">
@@ -246,6 +274,7 @@ export default function HomePage() {
         {runError && <Alert tone="error">{runError}</Alert>}
         {lanError && <Alert tone="error">{lanError}</Alert>}
         {cloudError && <Alert tone="error">{cloudError}</Alert>}
+        {autostartError && <Alert tone="error">{autostartError}</Alert>}
       </div>
 
       {ready && (
@@ -406,6 +435,32 @@ export default function HomePage() {
 
           {mcpHint && <Alert tone="info">{mcpHint}</Alert>}
           {mcpError && <Alert tone="error">{mcpError}</Alert>}
+        </div>
+      )}
+
+      {ready && (
+        <div className="home-cta card home-lan">
+          <div className="home-lan__row">
+            <div>
+              <h2 className="home-cta__title">Start with Windows</h2>
+              <p className="muted text-sm">
+                Open Navbe when you sign in. Turn off if you only want it launched by hand.
+              </p>
+            </div>
+            <Button
+              variant={autostartEnabled ? "ghost" : undefined}
+              disabled={autostartBusy}
+              onClick={() => void setAutostart(!autostartEnabled)}
+            >
+              {autostartBusy
+                ? autostartEnabled
+                  ? "Disabling…"
+                  : "Enabling…"
+                : autostartEnabled
+                  ? "Turn off"
+                  : "Enable"}
+            </Button>
+          </div>
         </div>
       )}
 

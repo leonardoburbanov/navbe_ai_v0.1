@@ -28,6 +28,7 @@ const LISTEN_PORT: u16 = 8000;
 const LAN_REMOTE_FILE: &str = "lan_remote.json";
 const LAN_TOKEN_FILE: &str = "lan_token";
 const CLOUD_FILE: &str = "cloud.json";
+const DESKTOP_FILE: &str = "desktop.json";
 
 struct DaemonState {
     child: Mutex<Option<Child>>,
@@ -55,6 +56,29 @@ struct DaemonStatus {
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct LanRemoteConfig {
+    enabled: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct DesktopPref {
+    #[serde(default = "default_true")]
+    start_on_login: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for DesktopPref {
+    fn default() -> Self {
+        Self {
+            start_on_login: true,
+        }
+    }
+}
+
+#[derive(Serialize, Clone)]
+struct AutostartStatus {
     enabled: bool,
 }
 
@@ -236,6 +260,56 @@ fn lan_token_path() -> PathBuf {
 
 fn cloud_config_path() -> PathBuf {
     navbe_home().join(CLOUD_FILE)
+}
+
+fn desktop_pref_path() -> PathBuf {
+    navbe_home().join(DESKTOP_FILE)
+}
+
+fn read_desktop_pref() -> DesktopPref {
+    let Ok(raw) = std::fs::read_to_string(desktop_pref_path()) else {
+        return DesktopPref::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn write_desktop_pref(pref: &DesktopPref) -> Result<(), String> {
+    let home = navbe_home();
+    std::fs::create_dir_all(&home).map_err(|e| format!("mkdir {}: {e}", home.display()))?;
+    let path = desktop_pref_path();
+    let raw = serde_json::to_string_pretty(pref).map_err(|e| e.to_string())?;
+    std::fs::write(&path, raw + "\n").map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+fn apply_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    if enabled {
+        app.autolaunch()
+            .enable()
+            .map_err(|e| format!("enable autostart: {e}"))
+    } else {
+        app.autolaunch()
+            .disable()
+            .map_err(|e| format!("disable autostart: {e}"))
+    }
+}
+
+/// Packaged builds start with Windows by default; honor desktop.json opt-out.
+fn apply_autostart_default(app: &tauri::AppHandle) {
+    if !is_packaged(app) {
+        return;
+    }
+    let existed = desktop_pref_path().is_file();
+    let pref = read_desktop_pref();
+    if !pref.start_on_login {
+        return;
+    }
+    let _ = apply_autostart(app, true);
+    if !existed {
+        let _ = write_desktop_pref(&DesktopPref {
+            start_on_login: true,
+        });
+    }
 }
 
 fn cursor_mcp_path() -> PathBuf {
@@ -1138,6 +1212,25 @@ fn lan_remote_status() -> LanRemoteStatus {
     build_lan_remote_status()
 }
 
+#[tauri::command]
+fn autostart_status() -> AutostartStatus {
+    AutostartStatus {
+        enabled: read_desktop_pref().start_on_login,
+    }
+}
+
+/// Persist login preference; register/unregister the Windows Run key when packaged.
+#[tauri::command]
+fn autostart_set(app: tauri::AppHandle, enabled: bool) -> Result<AutostartStatus, String> {
+    write_desktop_pref(&DesktopPref {
+        start_on_login: enabled,
+    })?;
+    if is_packaged(&app) {
+        apply_autostart(&app, enabled)?;
+    }
+    Ok(AutostartStatus { enabled })
+}
+
 /// Enable or disable cloud remote (register device + start/stop outbound agent).
 #[tauri::command]
 fn cloud_remote_set(
@@ -1292,7 +1385,7 @@ fn api_request(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_autostart::Builder::new().app_name("Navbe").build())
         .plugin(tauri_plugin_opener::init())
         .manage(DaemonState {
             child: Mutex::new(None),
@@ -1303,6 +1396,7 @@ pub fn run() {
             booting: Mutex::new(true),
         })
         .setup(|app| {
+            apply_autostart_default(app.handle());
             // Keep setup non-blocking: reqwest::blocking on the UI thread can
             // stall/fail window creation on Windows.
             let handle = app.handle().clone();
@@ -1325,6 +1419,8 @@ pub fn run() {
             daemon_restart,
             lan_remote_set,
             lan_remote_status,
+            autostart_status,
+            autostart_set,
             cloud_remote_set,
             cloud_remote_status,
             mcp_client_status,
